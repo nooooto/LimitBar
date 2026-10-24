@@ -61,6 +61,9 @@ mv -f "$APP/Contents/MacOS/LimitBar.stamped" "$APP/Contents/MacOS/LimitBar"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # The iPhone widget; ICloudExport installs it in Scriptable's iCloud folder.
 cp scripts/LimitBar.js "$APP/Contents/Resources/LimitBar.js"
+# The panel's font, JetBrains Mono Nerd Font (SIL Open Font License, OFL.txt alongside), loaded
+# for the app alone through ATSApplicationFontsPath.
+cp -R Resources/Fonts "$APP/Contents/Resources/Fonts"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -77,6 +80,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$BUILD</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
+    <key>ATSApplicationFontsPath</key><string>Fonts</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>

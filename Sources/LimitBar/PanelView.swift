@@ -1,21 +1,8 @@
 import SwiftUI
 
-private enum Layout {
-    static let padding: CGFloat = 14
-    static let spacing: CGFloat = 14
-    static let nameColumn: CGFloat = 116
-    static let column: CGFloat = 92
-    static let logoSize: CGFloat = 18
-    static let logoInset = logoSize + 6
-    /// Highlighted rows sit this far in from the panel's edge (concentric 12 pt corners)...
-    static let rowInset: CGFloat = 6
-    /// ...and this far from the separators around them, as in the system menus.
-    static let rowGap: CGFloat = 3
-    /// Padding inside a highlighted service row, the same on every side.
-    static let rowPadding: CGFloat = 8
-    static let width = padding * 2 + nameColumn + column * 2 + spacing * 2
-}
-
+/// The panel, laid out like a terminal program: lines of monospaced text on a grid of
+/// `Terminal.columns` characters, bars and charts made of block characters, two tones of text and
+/// colour only for limits running out (see Terminal).
 struct PanelView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var settings = AppSettings.shared
@@ -23,92 +10,165 @@ struct PanelView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             VStack(alignment: .leading, spacing: 0) {
-                header
+                header(context.date)
+                Rule()
                 ForEach(settings.visibleProviders) { id in
                     // A click opens the service's own usage page, like a menu item.
-                    HoverRow(highlightOpacity: 0.06, action: { id.openUsagePage() }) {
-                        if id == .opencode {
-                            // Its limits are per model, so it gets a layout built around the models.
-                            OpenCodeSection(state: store.state(id), now: context.date,
+                    HoverRow(action: { id.openUsagePage() }) {
+                        Group {
+                            if id == .opencode {
+                                OpenCodeBlock(state: store.state(id), now: context.date,
+                                              workingSessions: store.activity.sessions(id))
+                            } else {
+                                LimitsBlock(provider: id, state: store.state(id), now: context.date,
+                                            samples: store.history[id] ?? [], showHistory: settings.showHistory,
                                             workingSessions: store.activity.sessions(id))
-                        } else if id == .claude {
-                            ClaudeSection(state: store.state(id), now: context.date, samples: store.history[id] ?? [],
-                                          showHistory: settings.showHistory, workingSessions: store.activity.sessions(id))
-                        } else {
-                            ProviderRow(provider: id, state: store.state(id), now: context.date,
-                                        samples: store.history[id] ?? [], showHistory: settings.showHistory,
-                                        workingSessions: store.activity.sessions(id))
+                            }
                         }
+                        .padding(.vertical, 8)
                     }
                     .help(id.usageDestination)
-                    .padding(.horizontal, Layout.rowInset)
-                    .padding(.vertical, Layout.rowGap)
                     if id == .claude, store.state(.claude).needsSignIn || store.claudeLoginPending {
                         ClaudeSignIn(store: store)
                     }
-                    Divider().padding(.horizontal, Layout.padding)
+                    Rule()
                 }
                 if settings.showValue {
-                    // Only the services whose work can be priced from logs on this Mac.
-                    ValueSection(store: store, providers: settings.visibleProviders.filter(\.isInCostLedger), now: context.date)
+                    // Only the services whose work can be priced (see CostLedger).
+                    ValueBlock(store: store, providers: settings.visibleProviders.filter(\.isInCostLedger), now: context.date)
                 }
-                footer.padding(.top, 4)
+                footer
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
+            .font(Terminal.font())
+            .foregroundStyle(Terminal.foreground)
         }
-        .frame(width: Layout.width)
+        .frame(width: Terminal.width)
     }
 
-    private var header: some View {
-        HStack(spacing: Layout.spacing) {
-            Text("LimitBar")
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: Layout.nameColumn, alignment: .leading)
-            Text("5 ore").frame(width: Layout.column, alignment: .leading)
-            Text("Settimana").frame(width: Layout.column, alignment: .leading)
+    private func header(_ now: Date) -> some View {
+        HStack {
+            Text("limitbar").font(Terminal.font(weight: .bold))
+            Spacer()
+            Text(Format.stamp(now)).foregroundStyle(Terminal.dim)
         }
-        .font(.system(size: 11))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, Layout.padding)
-        .padding(.top, 2)
-        .padding(.bottom, 4)
+        .padding(.horizontal, Terminal.padding)
+        .padding(.vertical, 6)
     }
 
     private var footer: some View {
         VStack(spacing: 0) {
-            MenuRow(title: "Aggiorna ora", icon: "arrow.clockwise", busy: store.isRefreshing) {
+            MenuLine(title: store.isRefreshing ? "⋯ aggiornamento" : "↻ aggiorna ora", shortcut: "⌘R") {
                 Task { await store.refresh(force: true) }
-            } trailing: {
-                Shortcut("⌘R")
             }
             .keyboardShortcut("r", modifiers: .command)
 
-            MenuRow(title: "Impostazioni…", icon: "gearshape", action: { SettingsWindow.shared.show() }) {
-                Shortcut("⌘,")
-            }
-            .keyboardShortcut(",", modifiers: .command)
+            MenuLine(title: "⚙ impostazioni…", shortcut: "⌘,") { SettingsWindow.shared.show() }
+                .keyboardShortcut(",", modifiers: .command)
 
             if store.claudeSignedInHere {
-                MenuRow(title: "Disconnetti Claude", icon: "person.crop.circle.badge.xmark",
-                        action: { store.signOutOfClaude() }) { EmptyView() }
+                MenuLine(title: "⏏ disconnetti claude", shortcut: nil) { store.signOutOfClaude() }
             }
 
-            MenuRow(title: "Esci da LimitBar", icon: "power", action: { NSApp.terminate(nil) }) {
-                Shortcut("⌘Q")
-            }
-            .keyboardShortcut("q", modifiers: .command)
+            MenuLine(title: "⏻ esci", shortcut: "⌘Q") { NSApp.terminate(nil) }
+                .keyboardShortcut("q", modifiers: .command)
         }
-        .padding(.horizontal, 6)
+        .padding(.top, 4)
     }
 }
 
-private struct ProviderRow: View {
+// MARK: - Building blocks
+
+/// A line across the panel, drawn with box characters like the rest.
+private struct Rule: View {
+    var body: some View {
+        Text(String(repeating: "─", count: Terminal.columns))
+            .foregroundStyle(Terminal.dim.opacity(0.45))
+            .lineLimit(1)
+            .padding(.horizontal, Terminal.padding)
+    }
+}
+
+/// "claude pro                        ● al lavoro": a service's name and plan, then its state.
+private struct TitleLine: View {
+    let title: String
+    /// The service's signature colour, for its name and its "al lavoro".
+    let tint: Color
+    let plan: String?
+    let snapshot: ProviderSnapshot?
+    let workingSessions: Int
+    let now: Date
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(title).font(Terminal.font(weight: .bold)).foregroundStyle(tint)
+            if let plan { Text(" " + plan.lowercased()).foregroundStyle(Terminal.dim) }
+            Spacer(minLength: Terminal.cell)
+            if workingSessions > 0 {
+                Text(workingSessions == 1 ? "● al lavoro" : "● \(workingSessions) al lavoro")
+                    .font(Terminal.font(weight: .semibold))
+                    .foregroundStyle(tint)
+            } else if let snapshot {
+                // A terminal: the numbers came from Claude Code's status line.
+                Text((snapshot.source == "statusline" ? "⌘ " : "↻ ") + Format.ago(snapshot.updatedAt, now: now))
+                    .foregroundStyle(Terminal.dim)
+            }
+        }
+        .lineLimit(1)
+    }
+}
+
+/// "5 ore  ━━━━━━━━╾───────  53%  tra 2h50": a limit on one line. The bar, percentage and
+/// the right-hand note fit the grid: 6 + 1 + 16 + 1 + 4 + 2 + 16 characters.
+private struct LimitLine: View {
+    let label: String
+    let percent: Double
+    let note: String
+    /// The bar's colour while the limit isn't running out: the service's.
+    var tint: Color = Terminal.foreground
+
+    var body: some View {
+        let bar = Terminal.bar(percent, width: 16)
+        HStack(spacing: 0) {
+            Text(Terminal.fit(label, 7)).foregroundStyle(Terminal.dim).fixedSize()
+            Text(bar.filled).foregroundStyle(Terminal.level(percent, normal: tint)).fixedSize()
+            Text(bar.empty).foregroundStyle(Terminal.dim.opacity(0.5)).fixedSize()
+            Text(String(format: "%4d%%", Int(percent.rounded())))
+                .font(Terminal.font(weight: .semibold))
+                .foregroundStyle(Terminal.level(percent))
+                .frame(width: Terminal.cols(5), alignment: .trailing)
+            Text(note)
+                .foregroundStyle(Terminal.dim)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .lineLimit(1)
+    }
+}
+
+/// A line of secondary text that may wrap: "› …", "! …".
+private struct NoteLine: View {
+    let mark: String
+    let text: String
+    var color: Color = Terminal.dim
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(mark + " ").foregroundStyle(color)
+            Text(text).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+// MARK: - Services
+
+/// Claude (and Codex, if it's switched back on): its limits as bar lines, the forecast, and the
+/// last hours as a sparkline.
+private struct LimitsBlock: View {
     let provider: ProviderID
     let state: ProviderState
     let now: Date
     let samples: [UsageSample]
     let showHistory: Bool
-    /// Sessions of this service working right now (Claude Code sessions, Codex turns).
     let workingSessions: Int
 
     private var snapshot: ProviderSnapshot? { state.snapshot }
@@ -124,113 +184,209 @@ private struct ProviderRow: View {
         .min { $0.2 < $1.2 }
     }
 
-    /// The chart follows the window the menu bar would care about: 5 hours if there is one.
-    private var chartKind: WindowKind { snapshot?.fiveHour != nil ? .fiveHour : .week }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .top, spacing: Layout.spacing) {
+        VStack(alignment: .leading, spacing: 4) {
+            TitleLine(title: provider.title.lowercased(), tint: provider.tint, plan: snapshot?.plan ?? provider.toolName,
+                      snapshot: snapshot, workingSessions: workingSessions, now: now)
+            if let snapshot {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Image(nsImage: provider.logo)
-                            .resizable()
-                            .frame(width: Layout.logoSize, height: Layout.logoSize)
-                        Text(provider.title).font(.system(size: 13, weight: .semibold))
-                    }
-                    Text(snapshot?.plan ?? provider.toolName)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, Layout.logoInset)
-                    Group {
-                        if let snapshot {
-                            // The icon stands in for "aggiornato", which didn't fit the column;
-                            // a terminal means the numbers came from Claude Code's status line.
-                            HStack(spacing: 3) {
-                                Image(systemName: snapshot.source == "statusline" ? "terminal" : "arrow.clockwise")
-                                    .font(.system(size: 8, weight: .semibold))
-                                Text(Format.ago(snapshot.updatedAt, now: now))
-                            }
-                        } else {
-                            Text("in attesa di dati")
-                        }
-                    }
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, Layout.logoInset)
-
-                    if workingSessions > 0 {
-                        HStack(spacing: 4) {
-                            Circle().fill(provider.tint).frame(width: 6, height: 6)
-                            Text(workingSessions == 1 ? "al lavoro" : "\(workingSessions) al lavoro")
-                        }
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(provider.tint)
-                        .padding(.leading, Layout.logoInset)
-                    }
+                    line("5 ore", snapshot.fiveHour)
+                    line(WindowKind.week.limitName(snapshot.week ?? UsageWindow(usedPercent: 0)) == "mensile" ? "mese" : "sett.",
+                         snapshot.week)
+                    ForEach(snapshot.extras) { extra in line(extra.label.lowercased(), extra.window) }
                 }
-                .lineLimit(1)
-                .frame(width: Layout.nameColumn, alignment: .leading)
-
-                UsageCell(window: snapshot?.fiveHour, columnMinutes: 5 * 60, tint: provider.tint, now: now,
-                          placeholder: snapshot == nil ? "…" : "senza limite 5 ore")
-                UsageCell(window: snapshot?.week, columnMinutes: 7 * 24 * 60, tint: provider.tint, now: now,
-                          placeholder: snapshot == nil ? "…" : "senza limite sett.")
-            }
-
-            ForEach(snapshot?.extras ?? []) { extra in
-                HStack(spacing: Layout.spacing) {
-                    Text(extra.label)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, Layout.logoInset)
-                        .frame(width: Layout.nameColumn, alignment: .leading)
-                    Color.clear.frame(width: Layout.column, height: 1)
-                    CompactCell(window: extra.window, tint: provider.tint, now: now)
+                .padding(.top, 2)
+                if let forecast {
+                    NoteLine(mark: "›", text: "a questo ritmo finisci il limite \(forecast.kind.limitName(forecast.window)) "
+                             + Format.at(forecast.date, now: now), color: Terminal.foreground)
                 }
+                if showHistory, let spark = Sparkline(samples: samples, snapshot: snapshot, now: now, tint: provider.tint) {
+                    spark
+                }
+            } else if state.error == nil {
+                Text("in attesa di dati…").foregroundStyle(Terminal.dim)
             }
-
-            if let forecast {
-                Label("A questo ritmo finisci il limite \(forecast.kind.limitName(forecast.window)) "
-                      + Format.at(forecast.date, now: now),
-                      systemImage: "gauge.with.dots.needle.67percent")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(provider.tint)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if showHistory, let snapshot {
-                HistoryChart(samples: samples, kind: chartKind,
-                             current: chartKind.window(in: snapshot)?.effectivePercent(at: now),
-                             tint: provider.tint, now: now,
-                             runsOut: forecast?.kind == chartKind ? forecast?.date : nil)
-                    .padding(.leading, Layout.logoInset)
-            }
-
-            if let note = snapshot?.note {
-                Label(note, systemImage: "info.circle")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            }
-            if let notice = state.notice {
-                Label(notice, systemImage: "clock")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            }
+            if let note = snapshot?.note { NoteLine(mark: "i", text: note) }
             if let error = state.error {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.orange)
+                NoteLine(mark: "!", text: error, color: Terminal.red)
+            } else if let notice = state.notice {
+                NoteLine(mark: "·", text: notice)
             }
         }
-        .padding(Layout.rowPadding)
+    }
+
+    @ViewBuilder
+    private func line(_ label: String, _ window: UsageWindow?) -> some View {
+        if let window {
+            let left = window.resetsAt.flatMap { Format.shortCountdown($0, now: now) }
+            LimitLine(label: label, percent: window.effectivePercent(at: now), note: left.map { "tra " + $0 } ?? "",
+                      tint: provider.tint)
+                .help(window.resetsAt.map { "Si azzera " + Format.at($0, now: now) } ?? "")
+        } else {
+            HStack(spacing: 0) {
+                Text(Terminal.fit(label, 7)).foregroundStyle(Terminal.dim)
+                Text("nessun limite").foregroundStyle(Terminal.dim)
+            }
+        }
     }
 }
 
-/// This month's work at API prices next to each plan: what the official usage pages don't show.
-private struct ValueSection: View {
+/// "▁▁▂▃▃▅▅▅▅▆▇▁▂▃▃▃  5 ore · 21h": the main window over the last day, one character per slice of
+/// time; nil until there's half an hour of readings that actually move.
+private struct Sparkline: View {
+    let values: [Double]
+    let label: String
+    let tint: Color
+
+    init?(samples: [UsageSample], snapshot: ProviderSnapshot, now: Date, tint: Color) {
+        self.tint = tint
+        let kind: WindowKind = snapshot.fiveHour != nil ? .fiveHour : .week
+        var points = samples.compactMap { sample -> (Date, Double)? in
+            guard sample.date >= now.addingTimeInterval(-86400), let value = sample.value(kind) else { return nil }
+            return (sample.date, value)
+        }
+        if let current = kind.window(in: snapshot)?.effectivePercent(at: now) { points.append((now, current)) }
+        guard let first = points.first, now.timeIntervalSince(first.0) >= 1800,
+              let high = points.map(\.1).max(), let low = points.map(\.1).min(), high - low >= 2 else { return nil }
+        // Each character shows the reading in force at the end of its slice.
+        let width = 30
+        let slice = now.timeIntervalSince(first.0) / Double(width)
+        values = (1...width).map { index in
+            let end = first.0.addingTimeInterval(slice * Double(index))
+            return points.last { $0.0 <= end }?.1 ?? first.1
+        }
+        let hours = Int(now.timeIntervalSince(first.0) / 3600)
+        label = (kind == .fiveHour ? "5 ore" : "limite") + " · " + (hours >= 1 ? "\(hours)h" : "\(Int(now.timeIntervalSince(first.0) / 60))m")
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(Terminal.sparkline(values)).foregroundStyle(tint).fixedSize()
+            Text("  " + label)
+                .foregroundStyle(Terminal.dim)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .lineLimit(1)
+        .padding(.top, 2)
+    }
+}
+
+/// OpenCode Go: its limits are one quota shared by all models (see OpenCodeProvider), so the
+/// model in use, the shared lines with the dollars left in that model, and who used the 5 hours.
+private struct OpenCodeBlock: View {
+    let state: ProviderState
+    let now: Date
+    let workingSessions: Int
+
+    private var snapshot: ProviderSnapshot? { state.snapshot }
+    private var models: [ModelUsage] { snapshot?.models ?? [] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TitleLine(title: "opencode", tint: ProviderID.opencode.tint, plan: snapshot?.plan ?? "go", snapshot: snapshot,
+                      workingSessions: workingSessions, now: now)
+            if let snapshot {
+                let current = models.first(where: \.inUse)
+                if let current {
+                    HStack(spacing: 0) {
+                        Text(Terminal.fit("modello", 8)).foregroundStyle(Terminal.dim)
+                        Text(current.name)
+                        if current.isFree { Text(" · gratis").foregroundStyle(Terminal.dim) }
+                    }
+                    .lineLimit(1)
+                }
+                let month = snapshot.extras.first { $0.label == "Mese" }?.window
+                let limits: [(label: String, period: String, window: UsageWindow?, cap: Double?)] = [
+                    ("5 ore", "delle 5 ore", snapshot.fiveHour, current?.fiveHour.cap),
+                    ("sett.", "settimanale", snapshot.week, current?.week.cap),
+                    ("mese", "mensile", month, current?.month.cap),
+                ]
+                if let full = limits.first(where: { ($0.window?.effectivePercent(at: now) ?? 0) >= UsageWindow.exhausted }),
+                   let free = full.window?.resetsAt {
+                    NoteLine(mark: "✕", text: "limite \(full.period) pieno · di nuovo libero \(Format.at(free, now: now))",
+                             color: Terminal.red)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(limits, id: \.label) { limit in
+                        if let window = limit.window {
+                            sharedLine(limit.label, window, cap: current?.isFree == true ? nil : limit.cap, model: current?.name)
+                        }
+                    }
+                }
+                .padding(.top, 2)
+                let users = models.filter { $0.fiveHour.share >= 0.5 }.sorted { $0.fiveHour.share > $1.fiveHour.share }
+                if !users.isEmpty {
+                    Text("chi ha usato le 5 ore").foregroundStyle(Terminal.dim).padding(.top, 4)
+                    ForEach(users.prefix(4)) { model in ShareLine(model: model) }
+                }
+            } else if state.error == nil {
+                Text("in attesa di dati…").foregroundStyle(Terminal.dim)
+            }
+            if snapshot != nil, models.isEmpty {
+                Text("nessuna richiesta con go negli ultimi 30 giorni").foregroundStyle(Terminal.dim)
+            }
+            if let error = state.error {
+                NoteLine(mark: "!", text: error, color: Terminal.red)
+            } else if let notice = state.notice {
+                NoteLine(mark: "·", text: notice)
+            }
+            if snapshot != nil {
+                NoteLine(mark: "i", text: "stima da questo mac · limiti condivisi da tutti i modelli")
+            }
+        }
+        .help(models.filter { $0.month.share > 0 || $0.requests > 0 }.map {
+            "\($0.name): \($0.requests == 1 ? "1 richiesta" : "\($0.requests) richieste"), \(Format.dollars($0.spent)), "
+                + "\(Int($0.month.share.rounded()))% del mese"
+        }.joined(separator: "\n"))
+    }
+
+    /// A shared limit, with what's left of it in dollars of the model in use, or with no paid model
+    /// in use, the time until it frees up.
+    private func sharedLine(_ label: String, _ window: UsageWindow, cap: Double?, model: String?) -> some View {
+        let value = window.effectivePercent(at: now)
+        let left = cap.map { $0 * max(0, 100 - value) / 100 }
+        let note = left.map { Format.dollars($0) + " rimasti" }
+            ?? window.resetsAt.flatMap { Format.shortCountdown($0, now: now) }.map { "tra " + $0 } ?? ""
+        var tooltip: [String] = []
+        if let left, let model { tooltip.append("Con \(model) restano \(Format.dollars(left))") }
+        if let resetsAt = window.resetsAt, resetsAt > now { tooltip.append("si libera " + Format.at(resetsAt, now: now)) }
+        return LimitLine(label: label, percent: value, note: note, tint: ProviderID.opencode.tint)
+            .help(tooltip.joined(separator: " · "))
+    }
+}
+
+/// "Kimi K3.1 Pro         ━━━━━━━━ 100%   3,00 $": a model's slice of the shared 5 hours.
+private struct ShareLine: View {
+    let model: ModelUsage
+
+    var body: some View {
+        let share = model.fiveHour.share
+        let bar = Terminal.bar(min(share, 100), width: 8)
+        HStack(spacing: 0) {
+            Text(Terminal.fit("  " + model.name, 22)).fixedSize()
+            Text(bar.filled).foregroundStyle(Terminal.level(share, normal: ProviderID.opencode.tint)).fixedSize()
+            Text(bar.empty).foregroundStyle(Terminal.dim.opacity(0.5)).fixedSize()
+            Text(String(format: "%4d%%", Int(share.rounded())))
+                .font(Terminal.font(weight: .semibold))
+                .foregroundStyle(Terminal.level(share))
+                .frame(width: Terminal.cols(5), alignment: .trailing)
+            Text(Format.dollars(model.fiveHour.used))
+                .foregroundStyle(Terminal.dim)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .lineLimit(1)
+    }
+}
+
+// MARK: - Value at API prices
+
+/// This month's work at API prices next to each plan, then the projects it went to.
+private struct ValueBlock: View {
     @ObservedObject var store: UsageStore
     let providers: [ProviderID]
     let now: Date
+
+    private static let projectsShown = 3
 
     var body: some View {
         let values = providers.map { ($0, store.monthValue($0, now: now)) }
@@ -241,138 +397,99 @@ private struct ValueSection: View {
         let projects = store.monthProjects(providers, shown: Self.projectsShown, now: now)
         let comparison = store.monthComparison(providers, now: now)
         if total > 0 {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let comparison {
-                        header("Valore di \(Format.month(now))", note: Format.change(comparison))
-                            .help(Format.comparisonNote(comparison))
-                    } else {
-                        header("Valore di \(Format.month(now))", note: "stima a prezzi API")
-                    }
-                    ForEach(values, id: \.0) { id, value in
-                        row(id.title, amount: value.cost) {
-                            Image(nsImage: id.logo).resizable()
-                        } detail: {
-                            planLine(id, value).help(priceNote(id, value))
-                        }
-                    }
-                    if saved > 0 {
-                        row("Risparmiato", amount: saved, amountColor: .green) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.green)
-                        } detail: {
-                            Text("rispetto alle API").foregroundStyle(.secondary)
-                        }
-                    }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("valore di \(Format.month(now))").font(Terminal.font(weight: .bold))
+                    Spacer()
+                    Text(comparison.map(Format.change) ?? "stima a prezzi api").foregroundStyle(Terminal.dim)
                 }
-
+                .help(comparison.map(Format.comparisonNote) ?? "")
+                .padding(.bottom, 2)
+                ForEach(values, id: \.0) { id, value in
+                    valueLine(id.title.lowercased(), detail: planLine(id, value), amount: value.cost)
+                        .help(priceNote(id, value))
+                }
+                if saved > 0 {
+                    valueLine("risparmiato", detail: Text("rispetto alle api"), amount: saved, bold: true)
+                }
                 if !projects.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        header("Progetti", note: "quota del mese")
-                        ForEach(projects) { project in
-                            projectRow(project, monthTotal: total)
-                        }
+                    HStack {
+                        Text("progetti").font(Terminal.font(weight: .bold))
+                        Spacer()
+                        Text("quota del mese").foregroundStyle(Terminal.dim)
                     }
+                    .padding(.top, 8)
+                    .padding(.bottom, 2)
+                    ForEach(projects) { project in projectLine(project, monthTotal: total) }
                 }
             }
-            .padding(.horizontal, Layout.padding)
-            .padding(.vertical, 10)
-            Divider().padding(.horizontal, Layout.padding)
+            .padding(.horizontal, Terminal.padding)
+            .padding(.vertical, 8)
+            Rule()
         }
     }
 
-    private static let projectsShown = 3
-
-    private static let iconSize: CGFloat = 14
-
-    private func header(_ title: String, note: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.system(size: 13, weight: .semibold))
-            Spacer()
-            Text(note)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    /// Every row of the section on the panel's grid: icon and name in the name column, a detail
-    /// in the next one, and the amount in whole euros against the right edge, so they line up.
-    private func row<Icon: View, Detail: View>(_ name: String, amount: Double, amountColor: Color = .primary,
-                                               @ViewBuilder icon: () -> Icon,
-                                               @ViewBuilder detail: () -> Detail) -> some View {
-        HStack(spacing: Layout.spacing) {
-            HStack(spacing: 6) {
-                icon().frame(width: Self.iconSize, height: Self.iconSize)
-                Text(name)
-                    .font(.system(size: 12))
-                    .truncationMode(.middle)
-            }
-            .frame(width: Layout.nameColumn, alignment: .leading)
-
-            detail()
-                .font(.system(size: 10.5))
-                .monospacedDigit()
-                .frame(width: Layout.column, alignment: .leading)
-
+    /// "claude      ×14,4 il pro           258 €"
+    private func valueLine(_ name: String, detail: Text, amount: Double, bold: Bool = false) -> some View {
+        HStack(spacing: 0) {
+            Text(Terminal.fit(name, 12)).fixedSize()
+            detail.foregroundStyle(Terminal.dim).fixedSize()
+                .frame(width: Terminal.cols(20), alignment: .leading)
             Text(Format.wholeEuros(fromDollars: amount))
-                .font(.system(size: 12, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(amountColor)
+                .font(Terminal.font(weight: bold ? .bold : .semibold))
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .lineLimit(1)
     }
 
-    /// A project, its value this month, and its share of the month split by service. A click
-    /// opens its folder in the Finder, like a menu item; Altro and folders that are gone don't.
+    /// A project, its share of the month as a bar, and its value. A click opens its folder in the
+    /// Finder; Altro and folders that are gone don't.
     @ViewBuilder
-    private func projectRow(_ project: ProjectValue, monthTotal: Double) -> some View {
-        let parts = providers.compactMap { id in project.costs[id].map { (id, $0) } }
-        let share = monthTotal > 0 ? min(project.total / monthTotal, 1) : 0
-        let note = projectNote(project, parts: parts, share: share)
-        let content = row(project.name, amount: project.total) {
-            Image(systemName: project.name == ProjectFolder.other ? "ellipsis.circle.fill" : "folder.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        } detail: {
-            ShareBar(parts: parts.map { ($0.0.tint, $0.1) }, share: share).frame(height: 4)
+    private func projectLine(_ project: ProjectValue, monthTotal: Double) -> some View {
+        let share = monthTotal > 0 ? min(project.total / monthTotal, 1) * 100 : 0
+        let bar = Terminal.bar(share, width: 14)
+        let content = HStack(spacing: 0) {
+            Text(Terminal.fit((project.folder == nil ? "  " : "▸ ") + project.name.lowercased(), 18)).fixedSize()
+            Text(bar.filled).foregroundStyle(dominantTint(project)).fixedSize()
+            Text(bar.empty).foregroundStyle(Terminal.dim.opacity(0.5)).fixedSize()
+            Text(Format.wholeEuros(fromDollars: project.total))
+                .font(Terminal.font(weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .lineLimit(1)
         if let folder = project.folder {
-            // The highlight reaches past the row as far as the menu rows' does, so the text stays in place.
-            HoverRow(action: { NSWorkspace.shared.open(URL(fileURLWithPath: folder, isDirectory: true)) }) {
+            HoverRow(inset: false, action: { NSWorkspace.shared.open(URL(fileURLWithPath: folder, isDirectory: true)) }) {
                 content
-                    .padding(.horizontal, Layout.rowPadding)
-                    .padding(.vertical, Self.hoverPadding)
             }
-            .padding(.horizontal, -Layout.rowPadding)
-            .padding(.vertical, -Self.hoverPadding)
-            .help(note + "\nClic per aprirlo nel Finder")
+            .help(projectNote(project, share: share) + "\nClic per aprirlo nel Finder")
         } else {
-            content.help(note)
+            content.help(projectNote(project, share: share))
         }
     }
 
-    /// Vertical room in a project row's highlight, taken back outside so the rows keep their spacing.
-    private static let hoverPadding: CGFloat = 4
+    /// The colour of the service that did most of a project's work.
+    private func dominantTint(_ project: ProjectValue) -> Color {
+        project.costs.max { $0.value < $1.value }?.key.tint ?? Terminal.foreground
+    }
 
-    /// Tooltip: "LimitBar: Claude 80,12 €, Codex 4,10 € · 52% del mese", and for Altro what's in it.
-    private func projectNote(_ project: ProjectValue, parts: [(ProviderID, Double)], share: Double) -> String {
-        let services = parts.map { "\($0.0.title) \(Format.euros(fromDollars: $0.1))" }.joined(separator: ", ")
-        let note = "\(project.name): \(services) · \(Int((share * 100).rounded()))% del mese"
+    /// Tooltip: "LimitBar: Claude 80,12 € · 52% del mese", and for Altro what's in it.
+    private func projectNote(_ project: ProjectValue, share: Double) -> String {
+        let services = providers.compactMap { id in project.costs[id].map { "\(id.title) \(Format.euros(fromDollars: $0))" } }
+        let note = "\(project.name): \(services.joined(separator: ", ")) · \(Int(share.rounded()))% del mese"
         guard project.name == ProjectFolder.other else { return note }
         let folded = project.folded.isEmpty ? "" : ", e \(project.folded.joined(separator: ", "))"
         return note + "\nChat senza cartella, cartelle con più progetti\(folded)"
     }
 
-    /// "×8,0 il Pro": how many times its price the plan paid back. "piano Free" for free plans.
+    /// "×14,4 il pro" (the multiple in the service's colour): how many times its price the plan
+    /// paid back; "piano free" for free plans.
     private func planLine(_ id: ProviderID, _ value: ServiceValue) -> Text {
-        let plan = store.state(id).snapshot?.plan ?? ""
+        let plan = (store.state(id).snapshot?.plan ?? "").lowercased()
         if let multiple = value.multiple {
-            let times = Text(Format.multiple(multiple)).fontWeight(.semibold).foregroundColor(id.tint)
-            return Text("\(times) il \(plan)").foregroundColor(.secondary)
+            let times = Text(Format.multiple(multiple)).font(Terminal.font(weight: .semibold)).foregroundColor(id.tint)
+            return Text("\(times) il \(plan)")
         }
-        return Text(plan.isEmpty ? "" : "piano \(plan)").foregroundColor(.secondary)
+        return Text(plan.isEmpty ? "" : "piano \(plan)")
     }
 
     /// Tooltip: what the plan costs, the exchange rate, and what the value is compared with.
@@ -386,567 +503,91 @@ private struct ValueSection: View {
     }
 }
 
+// MARK: - Claude sign-in
+
 private struct ClaudeSignIn: View {
     @ObservedObject var store: UsageStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if store.claudeLoginPending {
-                Text("Approva nel browser, copia il codice che compare, poi:")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    Button("Incolla codice") { Task { await store.finishClaudeLogin() } }
-                        .buttonStyle(.borderedProminent)
-                        .tint(ProviderID.claude.tint)
-                    Button("Annulla") { store.cancelClaudeLogin() }
-                }
-                .controlSize(.small)
-            } else {
-                Button("Accedi a Claude…") { store.startClaudeLogin() }
-                    .controlSize(.small)
-            }
-        }
-        .padding(.leading, Layout.padding + Layout.logoInset)
-        .padding(.trailing, Layout.padding)
-        .padding(.bottom, 10)
-    }
-}
-
-private struct UsageCell: View {
-    let window: UsageWindow?
-    /// The window length the column header promises ("5 ore" or "Settimana").
-    let columnMinutes: Int
-    let tint: Color
-    let now: Date
-    let placeholder: String
-
-    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let window {
-                let value = window.effectivePercent(at: now)
-                let percent = Text("\(Int(value.rounded()))%").font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.primary)
-                let period = Format.period(window.windowMinutes, unlessEqualTo: columnMinutes).map { " · \($0)" } ?? ""
-                Text("\(percent) usato\(Text(period).font(.system(size: 11, weight: .medium)))")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-                UsageBar(value: value, tint: tint)
-                if let reset = Format.reset(window.resetsAt, now: now) {
-                    Text(reset)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                if let countdown = Format.countdown(window.resetsAt, now: now) {
-                    Text(countdown)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
+            if store.claudeLoginPending {
+                Text("approva nel browser, copia il codice che compare, poi:")
+                    .foregroundStyle(Terminal.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: Terminal.cell * 2) {
+                    TextButton(title: "[ incolla codice ]") { Task { await store.finishClaudeLogin() } }
+                    TextButton(title: "[ annulla ]") { store.cancelClaudeLogin() }
                 }
             } else {
-                Text(placeholder)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 2)
+                TextButton(title: "[ accedi a claude… ]") { store.startClaudeLogin() }
             }
         }
-        .lineLimit(1)
-        .frame(width: Layout.column, alignment: .leading)
+        .padding(.horizontal, Terminal.padding)
+        .padding(.bottom, 8)
     }
 }
 
-/// Claude in the same language as OpenCode's section: a one-line header, then a card with each
-/// limit (5 hours, week, any extra ones) as a full-width bar with the time left until it resets,
-/// and inside it the forecast and the chart. (Codex, switched off for now, keeps ProviderRow.)
-private struct ClaudeSection: View {
-    let state: ProviderState
-    let now: Date
-    let samples: [UsageSample]
-    let showHistory: Bool
-    let workingSessions: Int
+// MARK: - Menu
 
-    private let provider = ProviderID.claude
-    private var snapshot: ProviderSnapshot? { state.snapshot }
-
-    /// The window that runs out first at the current pace, if one does before it resets.
-    private var forecast: (kind: WindowKind, window: UsageWindow, date: Date)? {
-        guard let snapshot else { return nil }
-        return WindowKind.allCases.compactMap { kind -> (WindowKind, UsageWindow, Date)? in
-            guard let window = kind.window(in: snapshot),
-                  let date = UsageHistory.forecast(kind, window: window, samples: samples, now: now) else { return nil }
-            return (kind, window, date)
-        }
-        .min { $0.2 < $1.2 }
-    }
-
-    /// The chart follows the window the menu bar would care about: 5 hours if there is one.
-    private var chartKind: WindowKind { snapshot?.fiveHour != nil ? .fiveHour : .week }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            header
-            if let snapshot {
-                card(snapshot)
-            } else if state.error == nil {
-                Text("In attesa di dati…")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            if let note = snapshot?.note {
-                Label(note, systemImage: "info.circle")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-            if let error = state.error {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.orange)
-            } else if let notice = state.notice {
-                Label(notice, systemImage: "clock")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(Layout.rowPadding)
-    }
-
-    /// "[logo] Claude Pro … ● al lavoro", or when it was last read (a terminal: from Claude Code).
-    private var header: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Image(nsImage: provider.logo)
-                .resizable()
-                .frame(width: Layout.logoSize, height: Layout.logoSize)
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(provider.title).font(.system(size: 13, weight: .semibold))
-                Text(snapshot?.plan ?? provider.toolName)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            if workingSessions > 0 {
-                HStack(spacing: 4) {
-                    Circle().fill(provider.tint).frame(width: 6, height: 6)
-                    Text(workingSessions == 1 ? "al lavoro" : "\(workingSessions) al lavoro")
-                }
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(provider.tint)
-            } else if let snapshot {
-                HStack(spacing: 3) {
-                    Image(systemName: snapshot.source == "statusline" ? "terminal" : "arrow.clockwise")
-                        .font(.system(size: 8, weight: .semibold))
-                    Text(Format.ago(snapshot.updatedAt, now: now))
-                }
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-            }
-        }
-        .lineLimit(1)
-    }
-
-    private func card(_ snapshot: ProviderSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if let window = snapshot.fiveHour {
-                ResetLine(label: "5 ore", window: window, tint: provider.tint, now: now)
-            }
-            if let window = snapshot.week {
-                ResetLine(label: WindowKind.week.limitName(window) == "mensile" ? "Mese" : "Settimana",
-                          window: window, tint: provider.tint, now: now)
-            }
-            ForEach(snapshot.extras) { extra in
-                ResetLine(label: extra.label, window: extra.window, tint: provider.tint, now: now)
-            }
-            if let forecast {
-                Label("A questo ritmo finisci il limite \(forecast.kind.limitName(forecast.window)) "
-                      + Format.at(forecast.date, now: now),
-                      systemImage: "gauge.with.dots.needle.67percent")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(provider.tint)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
-            }
-            if showHistory {
-                HistoryChart(samples: samples, kind: chartKind,
-                             current: chartKind.window(in: snapshot)?.effectivePercent(at: now),
-                             tint: provider.tint, now: now,
-                             runsOut: forecast?.kind == chartKind ? forecast?.date : nil)
-            }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
-    }
-}
-
-/// "5 ore  [════════──────]  45%  tra 2 h 50 min": a limit as a full-width bar with the time left
-/// until it resets; the exact time is in the tooltip. The percentage turns orange from 80% and
-/// red from 90%, like the menu bar.
-private struct ResetLine: View {
-    let label: String
-    let window: UsageWindow
-    let tint: Color
-    let now: Date
-
-    var body: some View {
-        let value = window.effectivePercent(at: now)
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
-                .frame(width: 58, alignment: .leading)
-            UsageBar(value: value, tint: tint)
-            Text("\(Int(value.rounded()))%")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(value >= 90 ? Color.red : value >= 80 ? Color.orange : Color.primary)
-                .frame(width: 34, alignment: .trailing)
-            Text(Format.countdown(window.resetsAt, now: now) ?? (window.resetsAt == nil ? "" : "ora"))
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
-                .frame(width: 92, alignment: .trailing)
-        }
-        .monospacedDigit()
-        .lineLimit(1)
-        .help(window.resetsAt.map { "Si azzera " + Format.at($0, now: now) } ?? "")
-    }
-}
-
-/// OpenCode Go: a header with the month's total, a card with the limits all models share and
-/// the dollars left with the model picked in OpenCode, and how much of the last 5 hours each
-/// model used.
-private struct OpenCodeSection: View {
-    let state: ProviderState
-    let now: Date
-    let workingSessions: Int
-
-    private let provider = ProviderID.opencode
-    private var snapshot: ProviderSnapshot? { state.snapshot }
-    private var models: [ModelUsage] { snapshot?.models ?? [] }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            header
-            if let snapshot {
-                SharedLimitsCard(snapshot: snapshot, current: models.first(where: \.inUse), tint: provider.tint, now: now)
-                // Who filled the 5 hours, since all models draw on the same limits.
-                let users = models.filter { $0.fiveHour.share >= 0.5 }.sorted { $0.fiveHour.share > $1.fiveHour.share }
-                if !users.isEmpty {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Chi ha consumato le ultime 5 ore")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        ForEach(users.prefix(4)) { model in
-                            ModelShareLine(model: model, tint: provider.tint)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .help(models.filter { $0.month.share > 0 || $0.requests > 0 }.map {
-                        "\($0.name): \(requests($0.requests)), \(Format.dollars($0.spent)), \(Int($0.month.share.rounded()))% del mese"
-                    }.joined(separator: "\n"))
-                }
-            }
-            if snapshot != nil, models.isEmpty {
-                Text("Nessuna richiesta con Go negli ultimi 30 giorni")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            if let error = state.error {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.orange)
-            } else if let notice = state.notice {
-                Label(notice, systemImage: "clock")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            }
-            if snapshot != nil {
-                Label("Stima dall'uso su questo Mac · limiti condivisi da tutti i modelli", systemImage: "info.circle")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(Layout.rowPadding)
-    }
-
-    /// "[logo] OpenCode Go … ● al lavoro" over "30 giorni: 35 richieste · 0,12 $".
-    private var header: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Image(nsImage: provider.logo)
-                .resizable()
-                .frame(width: Layout.logoSize, height: Layout.logoSize)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(provider.title).font(.system(size: 13, weight: .semibold))
-                    Text(snapshot?.plan ?? provider.toolName)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                if !models.isEmpty {
-                    Text("30 giorni: \(requests(models.reduce(0) { $0 + $1.requests })) · \(Format.dollars(models.reduce(0) { $0 + $1.spent }))")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-            Spacer(minLength: 8)
-            if workingSessions > 0 {
-                HStack(spacing: 4) {
-                    Circle().fill(provider.tint).frame(width: 6, height: 6)
-                    Text(workingSessions == 1 ? "al lavoro" : "\(workingSessions) al lavoro")
-                }
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(provider.tint)
-            } else if let snapshot {
-                Text(Format.ago(snapshot.updatedAt, now: now))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .lineLimit(1)
-    }
-
-    private func requests(_ count: Int) -> String { count == 1 ? "1 richiesta" : "\(count) richieste" }
-
-}
-
-/// "Kimi K3.1 Pro  [██████████]  100%  3,00 $": a model's slice of the shared 5 hours, with the
-/// dollars it spent in them.
-private struct ModelShareLine: View {
-    let model: ModelUsage
-    let tint: Color
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(model.name)
-                .font(.system(size: 11))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            UsageBar(value: min(model.fiveHour.share, 100), tint: tint)
-                .frame(width: 70)
-            Text("\(Int(model.fiveHour.share.rounded()))%")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 38, alignment: .trailing)
-            Text(Format.dollars(model.fiveHour.used))
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .trailing)
-        }
-        .monospacedDigit()
-        .lineLimit(1)
-    }
-}
-
-/// OpenCode Go's limits, shared by all models: 5 hours, week and month as full-width bars, with
-/// the dollars left for the model in use (or the time until the window frees up). A full window
-/// says when it can be used again.
-private struct SharedLimitsCard: View {
-    let snapshot: ProviderSnapshot
-    /// The model picked in OpenCode, which sets how many dollars a share of the limits is worth.
-    let current: ModelUsage?
-    let tint: Color
-    let now: Date
-
-    var body: some View {
-        let month = snapshot.extras.first { $0.label == "Mese" }?.window
-        let limits: [(label: String, period: String, window: UsageWindow?, cap: Double?)] = [
-            ("5 ore", "delle 5 ore", snapshot.fiveHour, current?.fiveHour.cap),
-            ("Settimana", "settimanale", snapshot.week, current?.week.cap),
-            ("Mese", "mensile", month, current?.month.cap),
-        ]
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if let current {
-                    Text(current.name).font(.system(size: 12, weight: .semibold))
-                    Text("in uso")
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(tint))
-                }
-                Spacer(minLength: 0)
-            }
-            .lineLimit(1)
-            if let full = limits.first(where: { ($0.window?.effectivePercent(at: now) ?? 0) >= UsageWindow.exhausted }),
-               let free = full.window?.resetsAt {
-                Label("Limite \(full.period) pieno: OpenCode Go torna disponibile \(Format.at(free, now: now))",
-                      systemImage: "nosign")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if current?.isFree == true {
-                Text("Il modello in uso è gratuito: non consuma questi limiti")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(limits, id: \.label) { limit in
-                if let window = limit.window {
-                    SharedLimitLine(label: limit.label, window: window, cap: current?.isFree == true ? nil : limit.cap,
-                                    model: current?.name, tint: tint, now: now)
-                }
-            }
-        }
-        .padding(10)
-        .background(card.fill(Color.primary.opacity(0.05)))
-        .overlay(card.strokeBorder(tint.opacity(0.7), lineWidth: 1))
-    }
-
-    private var card: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
-}
-
-/// "5 ore  [════════──────]  24%  12,16 $ rimasti": a shared limit as a full-width bar. On the
-/// right, what's left of it in dollars of the model in use (its `cap` is the whole window), or,
-/// with no paid model in use, the time until it frees up.
-private struct SharedLimitLine: View {
-    let label: String
-    let window: UsageWindow
-    let cap: Double?
-    let model: String?
-    let tint: Color
-    let now: Date
-
-    var body: some View {
-        let value = window.effectivePercent(at: now)
-        let left = cap.map { $0 * max(0, 100 - value) / 100 }
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
-                .frame(width: 58, alignment: .leading)
-            UsageBar(value: value, tint: tint)
-            Text("\(Int(value.rounded()))%")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(value >= 90 ? Color.red : value >= 80 ? Color.orange : Color.primary)
-                .frame(width: 34, alignment: .trailing)
-            Text(left.map { "\(Format.dollars($0)) rimasti" } ?? Format.countdown(window.resetsAt, now: now) ?? "")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
-                .frame(width: 92, alignment: .trailing)
-        }
-        .monospacedDigit()
-        .lineLimit(1)
-        .help(note(left: left))
-    }
-
-    /// "Con DeepSeek V4.1 Flash restano 12,16 $ · si libera alle 13:44".
-    private func note(left: Double?) -> String {
-        var parts: [String] = []
-        if let left, let model { parts.append("Con \(model) restano \(Format.dollars(left))") }
-        if let resetsAt = window.resetsAt, resetsAt > now { parts.append("si libera " + Format.at(resetsAt, now: now)) }
-        return parts.joined(separator: " · ")
-    }
-}
-
-
-private struct CompactCell: View {
-    let window: UsageWindow
-    let tint: Color
-    let now: Date
-
-    var body: some View {
-        let value = window.effectivePercent(at: now)
-        HStack(spacing: 6) {
-            Text("\(Int(value.rounded()))%")
-                .font(.system(size: 11, weight: .medium))
-                .monospacedDigit()
-                .frame(width: 30, alignment: .leading)
-            UsageBar(value: value, tint: tint)
-        }
-        .frame(width: Layout.column, alignment: .leading)
-    }
-}
-
-private struct UsageBar: View {
-    let value: Double
-    let tint: Color
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.12))
-                Capsule()
-                    .fill(value >= 90 ? Color.red : tint)
-                    .frame(width: value > 0 ? max(3, geo.size.width * value / 100) : 0)
-            }
-        }
-        .frame(height: 4)
-    }
-}
-
-private struct Shortcut: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(text).font(.system(size: 12)).foregroundStyle(.tertiary)
-    }
-}
-
-private struct MenuRow<Trailing: View>: View {
+/// "↻ aggiorna ora                          ⌘R": a menu item, highlighted under the pointer.
+private struct MenuLine: View {
     let title: String
-    let icon: String
-    var busy = false
+    let shortcut: String?
     let action: () -> Void
-    @ViewBuilder let trailing: Trailing
 
     var body: some View {
         HoverRow(action: action) {
-            HStack(spacing: 8) {
-                MenuRowLabel(title: title, icon: icon, busy: busy)
+            HStack {
+                Text(title)
                 Spacer()
-                trailing
+                if let shortcut { Text(shortcut).foregroundStyle(Terminal.dim) }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)
         }
     }
 }
 
-/// A project's share of the month, drawn like UsageBar and split in the colours of the services
-/// whose work it was.
-private struct ShareBar: View {
-    let parts: [(tint: Color, cost: Double)]
-    /// The bar's length, 0 to 1 of the track.
-    let share: Double
+/// A bracketed text button, as a terminal program would show one.
+private struct TextButton: View {
+    let title: String
+    let action: () -> Void
+    // @State is a macro in the current SDK and needs Xcode's plugins; a StateObject builds with the CLT alone.
+    @StateObject private var hover = HoverState()
 
     var body: some View {
-        GeometryReader { geometry in
-            let total = parts.reduce(0) { $0 + $1.cost }
-            let length = share > 0 ? max(3, geometry.size.width * share) : 0
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.12))
-                HStack(spacing: 0) {
-                    ForEach(parts.indices, id: \.self) { i in
-                        Rectangle()
-                            .fill(parts[i].tint)
-                            .frame(width: total > 0 ? length * parts[i].cost / total : 0)
-                    }
-                }
-                .frame(width: length, alignment: .leading)
-                .clipShape(Capsule())
-            }
+        Button(action: action) {
+            Text(title)
+                .font(Terminal.font(weight: .semibold))
+                .foregroundStyle(hover.isOn ? Terminal.background.swiftUI : Terminal.foreground)
+                .background(hover.isOn ? Terminal.foreground : .clear)
         }
+        .buttonStyle(.plain)
+        .onHover { hover.isOn = $0 }
     }
 }
 
-/// A row that highlights on hover and runs `action` when clicked, like a menu item. The
-/// highlight is concentric with the panel: 18 pt corners minus the 6 pt inset.
+/// A row that highlights on hover, like a selection in a terminal, and runs `action` when clicked.
+/// With `inset`, the highlight reaches a little past the text, which keeps its place on the grid.
 private struct HoverRow<Content: View>: View {
-    var highlightOpacity = 0.1
+    var inset = true
     let action: () -> Void
     @ViewBuilder let content: Content
     // @State is a macro in the current SDK and needs Xcode's plugins; a StateObject builds with the CLT alone.
     @StateObject private var hover = HoverState()
-    private let highlight = RoundedRectangle(cornerRadius: 12, style: .continuous)
+    private let highlight = RoundedRectangle(cornerRadius: 4, style: .continuous)
+
+    private static var margin: CGFloat { 6 }
 
     var body: some View {
         Button(action: action) {
             content
-                .background(highlight.fill(hover.isOn ? Color.primary.opacity(highlightOpacity) : .clear))
+                .padding(.horizontal, inset ? Self.margin : 0)
+                .background(highlight.fill(hover.isOn ? Terminal.foreground.opacity(0.08) : .clear))
                 .contentShape(highlight)
         }
         .buttonStyle(.plain)
         .onHover { hover.isOn = $0 }
+        .padding(.horizontal, inset ? Terminal.padding - Self.margin : 0)
     }
 }
 
@@ -955,23 +596,6 @@ private final class HoverState: ObservableObject {
     @Published var isOn = ProcessInfo.processInfo.environment["LIMITBAR_RENDER_HOVER"] != nil
 }
 
-private struct MenuRowLabel: View {
-    let title: String
-    let icon: String
-    var busy = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Group {
-                if busy {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: icon).font(.system(size: 12))
-                }
-            }
-            .frame(width: 16)
-            .foregroundStyle(.secondary)
-            Text(title).font(.system(size: 13))
-        }
-    }
+private extension NSColor {
+    var swiftUI: Color { Color(nsColor: self) }
 }

@@ -4,10 +4,10 @@ import QuartzCore
 import SwiftUI
 
 /// Menu bar item plus a borderless panel. We draw the panel ourselves (instead of using
-/// MenuBarExtra's window) so it gets proper Liquid Glass with rounded, concentric corners.
+/// MenuBarExtra's window): a solid, terminal-like surface with rounded corners and our own shadow.
 @MainActor
 final class StatusController: NSObject {
-    private static let cornerRadius: CGFloat = 18
+    private static let cornerRadius: CGFloat = 10
     private static let gapBelowMenuBar: CGFloat = 6
 
     private let store = UsageStore()
@@ -276,57 +276,12 @@ private final class GlassPanel: NSPanel {
     }
 
     func setContent(_ view: NSView, cornerRadius: CGFloat) {
-        let surface: NSView
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView()
-            glass.style = .regular
-            glass.cornerRadius = cornerRadius
-            glass.tintColor = Self.legibilityTint
-            // The content sits on a tint that thins out from top to bottom (see GradientBackdrop).
-            glass.contentView = GradientBackdrop(content: view, cornerRadius: cornerRadius)
-            surface = glass
-        } else {
-            let effect = NSVisualEffectView()
-            effect.material = .popover
-            effect.state = .active
-            effect.blendingMode = .behindWindow
-            effect.maskImage = Self.roundedMask(radius: cornerRadius)
-            view.translatesAutoresizingMaskIntoConstraints = false
-            effect.addSubview(view)
-            NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-                view.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-                view.topAnchor.constraint(equalTo: effect.topAnchor),
-                view.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
-            ])
-            surface = effect
-        }
+        let surface = SolidSurface(content: view, cornerRadius: cornerRadius)
         let container = ShadowContainer(surface: surface, cornerRadius: cornerRadius, margin: Self.shadowMargin)
         container.onClickOutsideSurface = { [weak self] in self?.onResignKey?() }
         contentView = container
     }
 
-    /// What the glass tints its backdrop toward. The panel holds a lot of small text, coloured
-    /// lines and charts; over a light window plain glass let too much through and they lost
-    /// contrast. Toward the appearance's own background colour, it stays glass but reads. This
-    /// is the floor at the bottom of the panel; GradientBackdrop adds more toward the top.
-    private static let legibilityTint = NSColor(name: "LimitBarGlassTint") { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(white: 0.06, alpha: 0.4)
-            : NSColor(white: 1, alpha: 0.4)
-    }
-
-    private static func roundedMask(radius: CGFloat) -> NSImage {
-        let edge = radius * 2 + 1
-        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-            return true
-        }
-        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
-        image.resizingMode = .stretch
-        return image
-    }
 }
 
 /// Holds the glass inset by `margin` and casts a shadow shaped like its rounded rectangle.
@@ -380,21 +335,15 @@ private final class PassthroughImageView: NSImageView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// The glass's content on a layer of the appearance's background colour that fades from top to
-/// bottom: denser behind the header, clearer toward the menu items. The glass's own blur can't
-/// vary across the panel through public API, so the gradient is in the tint.
-private final class GradientBackdrop: NSView {
-    private let gradient = CAGradientLayer()
-
+/// The panel's surface: the terminal's solid background, rounded, with a hairline border.
+private final class SolidSurface: NSView {
     init(content: NSView, cornerRadius: CGFloat) {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = cornerRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
-        gradient.startPoint = CGPoint(x: 0.5, y: 1)  // the layer's y runs up: 1 is the top
-        gradient.endPoint = CGPoint(x: 0.5, y: 0)
-        layer?.addSublayer(gradient)
+        layer?.borderWidth = 1
         content.frame = bounds
         content.autoresizingMask = [.width, .height]
         addSubview(content)
@@ -403,20 +352,16 @@ private final class GradientBackdrop: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func layout() {
-        super.layout()
-        gradient.frame = bounds
-    }
-
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
     }
 
+    /// Layer colours don't follow the appearance by themselves.
     private func updateColors() {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let tone: CGFloat = dark ? 0.06 : 1
-        gradient.colors = [NSColor(white: tone, alpha: 0.45).cgColor, NSColor(white: tone, alpha: 0).cgColor]
-        gradient.locations = [0, 1]
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = Terminal.background.cgColor
+            layer?.borderColor = Terminal.border.cgColor
+        }
     }
 }

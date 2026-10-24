@@ -342,7 +342,8 @@ enum Icons {
     }
 
     static func statusLabel(_ parts: [StatusPart], workingGlyph: CGFloat = workingGlyph) -> StatusLabel {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        // The panel's terminal font, so the menu bar reads like the panel.
+        let font = Terminal.nsFont(12, weight: .semibold)
         let gap: CGFloat = 3, spacing: CGFloat = 8, height = max(18, workingGlyph + 2)
         let icons = parts.map { restingGlyph + (workingGlyph - restingGlyph) * $0.currentGrowth }
         let widths = parts.map { ceil(NSAttributedString(string: $0.text, attributes: [.font: font]).size().width) }

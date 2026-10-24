@@ -180,6 +180,11 @@ enum Format {
         return rest > 0 ? "\(hours) h \(rest) min" : "\(hours) h"
     }
 
+    /// "sab 24 ott · 12:01", for the panel's header.
+    static func stamp(_ date: Date) -> String {
+        weekdayDate.string(from: date) + " · " + time.string(from: date)
+    }
+
     /// "14:20"
     static func clock(_ date: Date) -> String { time.string(from: date) }
 
