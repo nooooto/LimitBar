@@ -31,7 +31,8 @@ final class StatusController: NSObject {
         super.init()
 
         if let button = statusItem.button {
-            // Same bounds and centring as the button's own image, so the two layers line up.
+            // Same bounds as the button's own image, which is as tall as the button (see
+            // Icons.statusLabel), so the two layers line up.
             colourLayer.frame = button.bounds
             colourLayer.autoresizingMask = [.width, .height]
             colourLayer.imageScaling = .scaleNone
@@ -149,7 +150,8 @@ final class StatusController: NSObject {
     private static let springSettle: CFTimeInterval = 0.6
 
     private func drawStatusImage() {
-        let label = store.statusLabel(growth: growth)
+        let height = statusItem.button.map(\.bounds.height).flatMap { $0 > 0 ? $0 : nil } ?? NSStatusBar.system.thickness
+        let label = store.statusLabel(growth: growth, height: height)
         statusItem.button?.image = label.base
         colourLayer.image = label.colour
     }

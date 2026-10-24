@@ -417,7 +417,7 @@ final class UsageStore: ObservableObject {
     /// The label with each glyph grown by `growth` (0 at rest, 1 working); a service missing from
     /// it is drawn as its activity says. A glyph keeps its colour while it's still bigger than at
     /// rest, so it shrinks back before turning plain.
-    func statusLabel(growth: [ProviderID: CGFloat]) -> Icons.StatusLabel {
+    func statusLabel(growth: [ProviderID: CGFloat], height: CGFloat?) -> Icons.StatusLabel {
         let now = Date()
         let parts = settings.visibleProviders.map { id -> Icons.StatusPart in
             let logo = id.glyph
@@ -429,7 +429,7 @@ final class UsageStore: ObservableObject {
             return Icons.StatusPart(logo: logo, text: number.text, alert: number.alert, glyph: glyph,
                                     glyphArtwork: artwork, growth: growth[id], tint: growth[id].map { min(max($0, 0), 1) })
         }
-        return Icons.statusLabel(parts)
+        return Icons.statusLabel(parts, height: height)
     }
 
     /// What the menu bar shows next to a service and in which colour: orange from 80%, red from

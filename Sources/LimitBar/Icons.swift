@@ -341,14 +341,20 @@ enum Icons {
         let colour: NSImage?
     }
 
-    static func statusLabel(_ parts: [StatusPart], workingGlyph: CGFloat = workingGlyph) -> StatusLabel {
+    /// `height` is the status item button's: an image as tall as the button needs no centring,
+    /// which the button and the colour layer over it rounded differently, half a point apart.
+    static func statusLabel(_ parts: [StatusPart], workingGlyph: CGFloat = workingGlyph, height: CGFloat? = nil) -> StatusLabel {
         // The panel's terminal font, so the menu bar reads like the panel.
         let font = Terminal.nsFont(12, weight: .semibold)
-        let gap: CGFloat = 3, spacing: CGFloat = 8, height = max(18, workingGlyph + 2)
+        let gap: CGFloat = 3, spacing: CGFloat = 8
+        let height = max(height ?? 0, 18, workingGlyph + 2)
         let icons = parts.map { restingGlyph + (workingGlyph - restingGlyph) * $0.currentGrowth }
         let widths = parts.map { ceil(NSAttributedString(string: $0.text, attributes: [.font: font]).size().width) }
         let width = zip(icons, widths).reduce(0) { $0 + $1.0 + gap + $1.1 } + spacing * CGFloat(max(parts.count - 1, 0))
         let size = NSSize(width: max(width, 1), height: height)
+        // The digits (as tall as the capitals) centred on the glyphs, not the font's line box,
+        // whose room for descenders pushed them up; on the pixel grid, so they stay sharp.
+        let baseline = ((height - font.capHeight) / 2 * 2).rounded() / 2
 
         /// How much of a part's working colour shows (0 when it isn't working).
         func workingTint(_ part: StatusPart) -> CGFloat {
@@ -374,11 +380,15 @@ enum Icons {
                         drawFaded(alpha: 1 - tint) { drawPlainGlyph(part.logo, in: rect, color: .black) }
                     }
                     x += icon + gap
-                    if (part.alert != nil) == colour {
+                    if (part.alert != nil) == colour, let context = NSGraphicsContext.current?.cgContext {
+                        let color = part.alert ?? NSColor.black
                         let text = NSAttributedString(string: part.text, attributes: [
-                            .font: font, .foregroundColor: part.alert ?? NSColor.black,
+                            .font: font, .foregroundColor: color,
+                            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color.cgColor,
                         ])
-                        text.draw(at: NSPoint(x: x, y: (height - text.size().height) / 2))
+                        context.textMatrix = .identity
+                        context.textPosition = CGPoint(x: x, y: baseline)
+                        CTLineDraw(CTLineCreateWithAttributedString(text), context)
                     }
                     x += textWidth + spacing
                 }
