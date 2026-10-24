@@ -1,0 +1,6 @@
+# Rebuilt by `swift build` and build.sh
+.build/
+build/
+# Hand-made copies from before the repository existed
+backups/
+.DS_Store

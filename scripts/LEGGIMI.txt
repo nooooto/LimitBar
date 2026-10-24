@@ -1,0 +1,47 @@
+LIMITBAR — i limiti di Claude e Codex nella barra dei menu del Mac
+Requisiti: Mac con processore Apple (M1 o successivo), macOS 14 o successivo.
+
+1) INSTALLA L'APP
+   - Trascina «LimitBar» nella cartella Applicazioni.
+   - Aprila. La prima volta il Mac dirà che non può verificare lo sviluppatore
+     (l'app non viene dall'App Store): vai in Impostazioni di Sistema ›
+     Privacy e sicurezza, scorri in basso e premi «Apri comunque».
+     In alternativa, dal Terminale:
+       xattr -dr com.apple.quarantine "/Applications/LimitBar.app"
+   - L'icona compare in alto a destra nella barra dei menu: cliccala per aprire
+     il pannello. Se il Mac chiede di mostrare le notifiche, premi «Consenti»
+     (servono per gli avvisi all'80% e al 90% dei limiti).
+
+2) COLLEGA CLAUDE
+   Nel pannello, sotto Claude, premi «Accedi a Claude…»: si apre il browser,
+   approva l'accesso, copia il codice che compare, torna al pannello e premi
+   «Incolla codice». Se usi già Claude Code dal Terminale con il tuo account,
+   LimitBar lo trova da sola e non serve.
+
+3) CODEX E OPENCODE
+   Se usi Codex (app ChatGPT o Terminale) con il tuo account ChatGPT, LimitBar
+   legge i limiti da solo. Per OpenCode Go li stima dall'uso fatto su questo
+   Mac, perché OpenCode non li rende leggibili. I servizi che non usi si
+   nascondono in Impostazioni.
+
+COSA MOSTRA
+   - Quanto hai usato delle 5 ore e della settimana, con l'orario del reset.
+   - Una previsione di quando finirai il limite, al ritmo attuale.
+   - Il valore del mese: quanto ti costerebbe a prezzi API il lavoro fatto con
+     Claude Code e Codex, rispetto al tuo abbonamento e al mese scorso, e i
+     progetti in cui è andato più lavoro.
+   - Una notifica quando Codex finisce un lavoro lungo, e il lunedì il
+     riepilogo della settimana prima.
+   - A limite esaurito, nella barra dei menu, quanto manca al reset (es. 1h12).
+   - L'icona di Codex diventa viola mentre Codex lavora.
+
+IMPOSTAZIONI
+   Dal pannello: «Impostazioni…» (⌘,). Puoi scegliere i servizi, ogni quanto
+   aggiornare, il numero nella barra dei menu e le notifiche.
+   Per avviarla all'accensione del Mac: interruttore «Apri al login».
+
+PRIVACY
+   LimitBar non ha un suo server. Si collega solo ad Anthropic e OpenAI per
+   leggere i tuoi limiti, e alla Banca Centrale Europea per il cambio
+   euro/dollaro. Salva una copia dei limiti nel tuo iCloud Drive (cartella
+   «LimitBar»), usata solo dal widget opzionale per iPhone.
