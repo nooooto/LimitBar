@@ -10,7 +10,7 @@ enum MenuBarNumber: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .highest: return "Il limite più vicino alla fine"
+        case .highest: return "Il limite più usato"
         case .fiveHour: return "5 ore"
         case .week: return "Settimana"
         }
@@ -175,18 +175,18 @@ struct SettingsView: View {
             } header: {
                 Text("Barra dei menu")
             } footer: {
-                Text("Il numero diventa arancione dall'80% e rosso dal 90%. A limite esaurito mostra quanto manca al reset.")
+                Text("Il numero diventa arancione dall'80% e rosso dal 90%. Quando un limite è esaurito, mostra tra quanto torna disponibile.")
             }
 
             Section {
                 Toggle("Avvisa all'80% e al 90% di un limite", isOn: $settings.notifyThresholds)
-                Toggle("Avvisa quando un limite esaurito si azzera", isOn: $settings.notifyResets)
-                Toggle("Avvisa quando Claude o Codex finiscono un lavoro lungo", isOn: $settings.notifyFinished)
-                Toggle("Riepilogo della settimana il lunedì", isOn: $settings.notifyWeekly)
+                Toggle("Avvisa quando un limite esaurito torna disponibile", isOn: $settings.notifyResets)
+                Toggle("Avvisa quando Claude o OpenCode finiscono un lavoro lungo", isOn: $settings.notifyFinished)
+                Toggle("Riepilogo della settimana ogni lunedì", isOn: $settings.notifyWeekly)
             } header: {
                 Text("Notifiche")
             } footer: {
-                Text("Il lavoro lungo dura almeno 2 minuti; l'avviso non arriva se stai già guardando Claude, Codex o il terminale.")
+                Text("Un lavoro è lungo se dura almeno 2 minuti. L'avviso non arriva se stai già usando Claude, OpenCode, il terminale o l'editor.")
             }
 
             Section {
@@ -195,7 +195,7 @@ struct SettingsView: View {
             } header: {
                 Text("Pannello")
             } footer: {
-                Text("Il valore è stimato in locale dai log di Claude Code e Codex, ai prezzi API pubblici convertiti in euro al cambio BCE del giorno. Le chat su claude.ai non sono incluse.")
+                Text("Il valore è stimato sui dati locali di Claude Code e OpenCode, ai prezzi API pubblici convertiti in euro al cambio BCE del giorno. Le chat su claude.ai non sono incluse.")
             }
 
             if let version = Self.version {

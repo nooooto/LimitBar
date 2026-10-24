@@ -80,7 +80,7 @@ enum OpenCodeProvider {
             sample.source = "sample"
             return sample
         }
-        guard isConnected else { throw ProviderError.notSignedIn("OpenCode Go non collegato · aprilo in OpenCode") }
+        guard isConnected else { throw ProviderError.notSignedIn("OpenCode Go non collegato · collegalo dall'app OpenCode") }
         guard let replies = OpenCodeDatabase.replies(since: now.addingTimeInterval(-30 * 86400)) else {
             throw ProviderError.badResponse
         }

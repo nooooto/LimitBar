@@ -1,4 +1,4 @@
-LIMITBAR — i limiti di Claude e Codex nella barra dei menu del Mac
+LIMITBAR — i limiti di Claude e OpenCode nella barra dei menu del Mac
 Requisiti: Mac con processore Apple (M1 o successivo), macOS 14 o successivo.
 
 1) INSTALLA L'APP
@@ -13,35 +13,41 @@ Requisiti: Mac con processore Apple (M1 o successivo), macOS 14 o successivo.
      (servono per gli avvisi all'80% e al 90% dei limiti).
 
 2) COLLEGA CLAUDE
-   Nel pannello, sotto Claude, premi «Accedi a Claude…»: si apre il browser,
-   approva l'accesso, copia il codice che compare, torna al pannello e premi
-   «Incolla codice». Se usi già Claude Code dal Terminale con il tuo account,
+   Nel pannello, sotto Claude, premi «accedi a Claude…»: si apre il browser.
+   Approva l'accesso, copia il codice che compare, torna al pannello e premi
+   «incolla codice». Se usi già Claude Code dal Terminale con il tuo account,
    LimitBar lo trova da sola e non serve.
 
-3) CODEX E OPENCODE
-   Se usi Codex (app ChatGPT o Terminale) con il tuo account ChatGPT, LimitBar
-   legge i limiti da solo. Per OpenCode Go li stima dall'uso fatto su questo
-   Mac, perché OpenCode non li rende leggibili. I servizi che non usi si
-   nascondono in Impostazioni.
+3) OPENCODE GO
+   OpenCode non rende leggibili i limiti, quindi LimitBar li stima dall'uso
+   fatto su questo Mac. Basta che OpenCode Go sia collegato nell'app OpenCode;
+   il piano (Go o Go Plus) si sceglie in Impostazioni. I limiti sono condivisi
+   da tutti i modelli. I servizi che non usi si nascondono in Impostazioni.
 
 COSA MOSTRA
-   - Quanto hai usato delle 5 ore e della settimana, con l'orario del reset.
+   - Quanto hai usato delle 5 ore e della settimana (per OpenCode anche del
+     mese) e tra quanto il limite si azzera.
    - Una previsione di quando finirai il limite, al ritmo attuale.
+   - Per OpenCode, quanti dollari restano con il modello che stai usando e
+     quali modelli hanno consumato le 5 ore.
    - Il valore del mese: quanto ti costerebbe a prezzi API il lavoro fatto con
-     Claude Code e Codex, rispetto al tuo abbonamento e al mese scorso, e i
-     progetti in cui è andato più lavoro.
-   - Una notifica quando Codex finisce un lavoro lungo, e il lunedì il
-     riepilogo della settimana prima.
-   - A limite esaurito, nella barra dei menu, quanto manca al reset (es. 1h12).
-   - L'icona di Codex diventa viola mentre Codex lavora.
+     Claude Code e OpenCode, rispetto al tuo abbonamento e al mese scorso, e i
+     progetti in cui è andato più lavoro (cliccane uno per aprirlo nel Finder).
+   - Una notifica quando Claude o OpenCode finiscono un lavoro lungo, e ogni
+     lunedì il riepilogo della settimana prima.
+   - Quando un limite è esaurito, nella barra dei menu, tra quanto torna
+     disponibile (es. 1h12).
+   - L'icona di un servizio si colora mentre lavora, e diventa rossa se il
+     limite è al 90% o oltre.
 
 IMPOSTAZIONI
-   Dal pannello: «Impostazioni…» (⌘,). Puoi scegliere i servizi, ogni quanto
+   Dal pannello: «impostazioni…» (⌘,). Puoi scegliere i servizi, ogni quanto
    aggiornare, il numero nella barra dei menu e le notifiche.
    Per avviarla all'accensione del Mac: interruttore «Apri al login».
 
 PRIVACY
-   LimitBar non ha un suo server. Si collega solo ad Anthropic e OpenAI per
-   leggere i tuoi limiti, e alla Banca Centrale Europea per il cambio
-   euro/dollaro. Salva una copia dei limiti nel tuo iCloud Drive (cartella
-   «LimitBar»), usata solo dal widget opzionale per iPhone.
+   LimitBar non ha un suo server. Si collega solo ad Anthropic per leggere i
+   tuoi limiti di Claude, e alla Banca Centrale Europea per il cambio
+   euro/dollaro; OpenCode lo legge solo dai dati sul Mac. Salva una copia dei
+   limiti nel tuo iCloud Drive (cartella «LimitBar»), usata solo dal widget
+   opzionale per iPhone.

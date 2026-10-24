@@ -40,14 +40,18 @@ const TIME = formatter("HH:mm")
 const DAY_TIME = formatter("EEE HH:mm")
 const DATE = formatter("d MMM")
 
-function resetText(win, now) {
+// "si azzera alle 12:40", "si azzera mar 18:00", "si azzera 2 nov"; OpenCode's windows roll,
+// so they free up ("si libera") rather than start over.
+function resetText(win, now, providerID) {
   if (!win || !win.resetsAt) return ""
   const date = new Date(win.resetsAt)
-  if (date <= now) return "azzerato"
+  const rolls = providerID === "opencode"
+  if (date <= now) return rolls ? "libero" : "azzerato"
+  const verb = rolls ? "si libera " : "si azzera "
   const sameDay = date.toDateString() === now.toDateString()
-  if (sameDay) return "reset " + TIME.string(date)
-  if (date - now >= 6 * 86400 * 1000) return "reset " + DATE.string(date)
-  return "reset " + DAY_TIME.string(date)
+  if (sameDay) return verb + "alle " + TIME.string(date)
+  if (date - now >= 6 * 86400 * 1000) return verb + DATE.string(date)
+  return verb + DAY_TIME.string(date)
 }
 
 function ago(iso, now) {
@@ -99,7 +103,7 @@ function addText(stack, text, size, color, weight) {
 }
 
 /// One usage window: "72% usato", the bar, the reset time.
-function addWindow(stack, win, color, width, now, label, expectedMinutes) {
+function addWindow(stack, win, color, width, now, label, expectedMinutes, providerID) {
   const column = stack.addStack()
   column.layoutVertically()
   column.size = new Size(width, 0)
@@ -120,7 +124,7 @@ function addWindow(stack, win, color, width, now, label, expectedMinutes) {
   const bar = column.addImage(barImage(value, color, width, 5))
   bar.imageSize = new Size(width, 5)
   column.addSpacer(3)
-  addText(column, resetText(win, now), 9, SECONDARY)
+  addText(column, resetText(win, now, providerID), 9, SECONDARY)
 }
 
 function addProvider(widget, provider, family, now) {
@@ -141,12 +145,12 @@ function addProvider(widget, provider, family, now) {
     // The window that runs out first is the one worth seeing on a small widget.
     const main = provider.fiveHour || provider.week
     addWindow(row, main, color, 120, now, provider.fiveHour ? "5 ore" : "Settimana",
-              provider.fiveHour ? 300 : 10080)
+              provider.fiveHour ? 300 : 10080, provider.id)
   } else {
     const width = 135
-    addWindow(row, provider.fiveHour, color, width, now, "5 ore", 300)
+    addWindow(row, provider.fiveHour, color, width, now, "5 ore", 300, provider.id)
     row.addSpacer()
-    addWindow(row, provider.week, color, width, now, "Settimana", 10080)
+    addWindow(row, provider.week, color, width, now, "Settimana", 10080, provider.id)
   }
 }
 

@@ -109,30 +109,9 @@ enum Format {
     }
 
     private static let time = formatter("HH:mm")
-    private static let dayTime = formatter("EEE HH:mm")
+    private static let weekday = formatter("EEE")
     private static let date = formatter("d MMM")
     private static let weekdayDate = formatter("EEE d MMM")
-
-    static func reset(_ date: Date?, now: Date) -> String? {
-        guard let date else { return nil }
-        if date <= now { return "azzerato" }
-        if Calendar.current.isDate(date, inSameDayAs: now) { return "reset " + time.string(from: date) }
-        // A weekday alone is ambiguous once the reset is a week or more away (monthly windows).
-        if date.timeIntervalSince(now) >= 6 * 86400 { return "reset " + self.date.string(from: date) }
-        return "reset " + dayTime.string(from: date)
-    }
-
-    /// Short name for a window that differs from its column, e.g. a 30-day limit under "Settimana".
-    static func period(_ minutes: Int?, unlessEqualTo expected: Int) -> String? {
-        guard let minutes, abs(minutes - expected) > expected / 10 else { return nil }
-        let hours = minutes / 60, days = minutes / (24 * 60)
-        switch minutes {
-        case ..<(24 * 60): return "\(hours) ore"
-        case (6 * 24 * 60)...(8 * 24 * 60): return "sett."
-        case (28 * 24 * 60)...(31 * 24 * 60): return "mese"
-        default: return days == 1 ? "1 giorno" : "\(days) giorni"
-        }
-    }
 
     /// "tra 1 h 20 min", "tra 3 g 4 h": how long until a reset.
     static func countdown(_ date: Date?, now: Date) -> String? {
@@ -185,11 +164,8 @@ enum Format {
         weekdayDate.string(from: date) + " · " + time.string(from: date)
     }
 
-    /// "14:20"
-    static func clock(_ date: Date) -> String { time.string(from: date) }
-
-    /// "alle 12:40" today, "domani alle 05:06", "lun 2 nov alle 18:00" further on: a weekday
-    /// alone would be ambiguous for a monthly limit.
+    /// "alle 12:40" today, "domani alle 05:06", "gio alle 09:17" within the week, "lun 2 nov
+    /// alle 18:00" further on, where a weekday alone would be ambiguous (monthly limits).
     static func at(_ date: Date, now: Date) -> String {
         let calendar = Calendar.current
         let clock = "alle " + time.string(from: date)
@@ -197,7 +173,16 @@ enum Format {
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) {
             return "domani " + clock
         }
+        if date.timeIntervalSince(now) < 6 * 86400 { return weekday.string(from: date) + " " + clock }
         return weekdayDate.string(from: date) + " " + clock
+    }
+
+    /// "l'82%", "il 90%": a percentage with its article, as a sentence needs it.
+    static func percentWithArticle(_ value: Double) -> String {
+        let number = Int(value.rounded())
+        // Read aloud, 1, 8, 11 and 80-89 start with a vowel: "l'uno", "l'ottanta", "l'undici".
+        let vowel = number == 1 || number == 11 || String(number).hasPrefix("8")
+        return (vowel ? "l'" : "il ") + "\(number)%"
     }
 
     private static let monthName = formatter("LLLL")

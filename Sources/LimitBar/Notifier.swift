@@ -50,7 +50,7 @@ enum Notifier {
 
         if let crossed = thresholds.last(where: { percent >= $0 }), crossed > level {
             if enabled {
-                var body = "Hai usato il \(Int(percent.rounded()))%."
+                var body = "Hai usato \(Format.percentWithArticle(percent))."
                 if let resetsAt = window.resetsAt { body += " Si azzera \(Format.at(resetsAt, now: Date()))." }
                 post(id: "threshold.\(id.rawValue).\(kind.rawValue)",
                      title: "\(id.title): \(Int(crossed))% del limite \(kind.limitName(window))", body: body)
@@ -75,7 +75,8 @@ enum Notifier {
         }
         let content = UNMutableNotificationContent()
         content.title = "\(id.title) è di nuovo disponibile"
-        content.body = "Il limite \(kind.limitName(window)) si è azzerato."
+        // OpenCode's windows roll, so they free up rather than start over.
+        content.body = "Il limite \(kind.limitName(window)) " + (id == .opencode ? "si è liberato." : "si è azzerato.")
         content.sound = .default
         // Re-adding with the same identifier replaces the pending alert, so readings can repeat this.
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: resetsAt.timeIntervalSince(now), repeats: false)
@@ -156,8 +157,8 @@ enum Notifier {
         post(id: "weekly", title: summary.title, body: summary.body)
     }
 
-    /// "52 € di lavoro a prezzi API, soprattutto su LimitBar (31 €). Limite settimanale al
-    /// massimo: Claude 71%, Codex 10%." for the week before `weekStart`; nil if there was no work.
+    /// "52 € di lavoro a prezzi API, soprattutto su LimitBar (31 €). Picco del limite
+    /// settimanale: Claude 71%, OpenCode 10%." for the week before `weekStart`; nil if there was no work.
     static func weeklySummary(costs: [String: [String: [String: Double]]], history: [ProviderID: [UsageSample]],
                               providers: [ProviderID], weekStart: Date) -> (title: String, body: String)? {
         let calendar = weekCalendar
@@ -182,7 +183,7 @@ enum Notifier {
             let week = (history[id] ?? []).filter { $0.date >= start && $0.date < weekStart }.compactMap(\.week)
             return week.max().map { "\(id.title) \(Int($0.rounded()))%" }
         }
-        if !peaks.isEmpty { body += " Limite settimanale al massimo: \(peaks.joined(separator: ", "))." }
+        if !peaks.isEmpty { body += " Picco del limite settimanale: \(peaks.joined(separator: ", "))." }
         return ("La settimana scorsa", body)
     }
 

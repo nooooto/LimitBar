@@ -4,8 +4,9 @@ import SwiftUI
 
 /// The panel's look: a terminal. One monospaced font, JetBrains Mono Nerd Font (bundled in the
 /// app's Resources/Fonts, SIL Open Font License), on a solid background, with text in two tones;
-/// colour marks each service (its own signature colour) and limits running out. Bars and charts are drawn with block characters, so everything
-/// lines up on the same character grid.
+/// colour marks each service (its own signature colour) and limits running out. Bars are drawn
+/// with box characters and the chart one cell per value, so everything lines up on the same
+/// character grid.
 enum Terminal {
     // MARK: Font
 
@@ -41,9 +42,18 @@ enum Terminal {
     /// The width of one character at the panel's size, the unit of every column.
     static let cell: CGFloat = ceil(("0" as NSString).size(withAttributes: [.font: nsFont(12)]).width * 10) / 10
 
-    /// The panel is this many characters wide.
+    /// The panel is this many characters wide, on one grid for every table in it: a label, a
+    /// bar (or a longer name over both), a percentage, and values against the right edge.
     static let columns = 46
+    static let labelColumns = 10
+    static let barColumns = 13
+    static let percentColumns = 5
+    static let nameColumns = labelColumns + barColumns
     static let padding: CGFloat = 14
+
+    /// The height of one line of text, and where its baseline sits from the top.
+    static let lineHeight: CGFloat = ceil(NSLayoutManager().defaultLineHeight(for: nsFont(12)))
+    static let ascender: CGFloat = ceil(nsFont(12).ascender)
     static let width = CGFloat(columns) * cell + padding * 2
 
     static func cols(_ count: Int) -> CGFloat { CGFloat(count) * cell }
@@ -82,12 +92,6 @@ enum Terminal {
         let halves = Int((min(max(percent, 0), 100) / 100 * Double(width * 2)).rounded())
         let filled = String(repeating: "━", count: halves / 2) + (halves % 2 == 1 ? "╾" : "")
         return (filled, String(repeating: "─", count: width - halves / 2 - halves % 2))
-    }
-
-    /// "▁▂▃▅▇": one character per value, 0 to 100.
-    static func sparkline(_ values: [Double]) -> String {
-        let blocks = Array("▁▂▃▄▅▆▇█")
-        return String(values.map { blocks[min(Int(min(max($0, 0), 100) / 100 * 7.999), 7)] })
     }
 
     /// A string cut or padded to exactly `count` characters.
