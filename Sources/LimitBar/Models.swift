@@ -102,8 +102,6 @@ struct ModelUsage: Codable, Equatable, Identifiable {
 struct ModelWindow: Codable, Equatable {
     var used: Double
     var cap: Double?
-    /// When the oldest reply counted leaves the window.
-    var resetsAt: Date?
 
     /// How much of the shared window this model used, in percent (the shares add up).
     var share: Double { cap.map { $0 > 0 ? used / $0 * 100 : 0 } ?? 0 }

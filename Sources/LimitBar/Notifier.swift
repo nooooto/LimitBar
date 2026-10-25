@@ -75,8 +75,7 @@ enum Notifier {
         }
         let content = UNMutableNotificationContent()
         content.title = "\(id.title) è di nuovo disponibile"
-        // OpenCode's windows roll, so they free up rather than start over.
-        content.body = "Il limite \(kind.limitName(window)) " + (id == .opencode ? "si è liberato." : "si è azzerato.")
+        content.body = "Il limite \(kind.limitName(window)) si è azzerato."
         content.sound = .default
         // Re-adding with the same identifier replaces the pending alert, so readings can repeat this.
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: resetsAt.timeIntervalSince(now), repeats: false)

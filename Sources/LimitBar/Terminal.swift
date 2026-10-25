@@ -54,7 +54,9 @@ enum Terminal {
     /// The height of one line of text, and where its baseline sits from the top.
     static let lineHeight: CGFloat = ceil(NSLayoutManager().defaultLineHeight(for: nsFont(12)))
     static let ascender: CGFloat = ceil(nsFont(12).ascender)
-    static let width = CGFloat(columns) * cell + padding * 2
+    /// The lines' room rounded up to a whole point: text measures its width in whole pixels, and
+    /// a line of exactly `columns` characters would otherwise wrap for a fraction of one.
+    static let width = ceil(CGFloat(columns) * cell) + padding * 2
 
     static func cols(_ count: Int) -> CGFloat { CGFloat(count) * cell }
 

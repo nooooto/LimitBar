@@ -433,7 +433,7 @@ final class UsageStore: ObservableObject {
     }
 
     /// What the menu bar shows next to a service and in which colour: orange from 80%, red from
-    /// 90% (`urgent`), and when a limit is used up, the time until it frees up rather than "100%".
+    /// 90% (`urgent`), and when a limit is used up, the time until it resets rather than "100%".
     private func menuBarNumber(_ id: ProviderID, now: Date) -> (text: String, alert: NSColor?, urgent: Bool) {
         if let until = blockedUntil(id, now: now), let left = Format.shortCountdown(until, now: now) {
             return (left, .systemRed, true)

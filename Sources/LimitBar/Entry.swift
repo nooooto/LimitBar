@@ -23,8 +23,11 @@ enum Entry {
             let providers: [(String, @Sendable () async throws -> ProviderSnapshot)] = [
                 ("claude", { try await ClaudeProvider.fetch() }), ("codex", { try await CodexProvider.fetch() }),
                 ("codex-api", { try await CodexProvider.fetchFromAPI() }),
+                ("opencode", { try await OpenCodeProvider.fetch() }),
             ]
-            for (name, fetch) in providers {
+            // `--dump opencode` prints only the services named after it.
+            let only = Set(CommandLine.arguments.drop { $0 != "--dump" }.dropFirst())
+            for (name, fetch) in providers where only.isEmpty || only.contains(name) {
                 do {
                     let data = try encoder.encode(try await fetch())
                     print("\(name): \(String(decoding: data, as: UTF8.self))")

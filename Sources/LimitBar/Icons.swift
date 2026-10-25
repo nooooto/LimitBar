@@ -401,20 +401,4 @@ enum Icons {
         let hasColour = parts.contains { $0.alert != nil || workingTint($0) > 0 }
         return StatusLabel(base: base, colour: hasColour ? layer(colour: true) : nil)
     }
-
-    /// Both layers flattened into one image (the base in the label colour), for renders and tests.
-    static func statusImage(_ parts: [StatusPart], workingGlyph: CGFloat = workingGlyph) -> NSImage {
-        let label = statusLabel(parts, workingGlyph: workingGlyph)
-        return NSImage(size: label.base.size, flipped: false) { rect in
-            let base = NSImage(size: rect.size, flipped: false) { inner in
-                label.base.draw(in: inner)
-                NSColor.labelColor.set()
-                inner.fill(using: .sourceAtop)
-                return true
-            }
-            base.draw(in: rect)
-            label.colour?.draw(in: rect)
-            return true
-        }
-    }
 }

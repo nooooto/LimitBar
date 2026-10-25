@@ -10,6 +10,9 @@ import SQLite3
 /// allowance in dollars is 100% of the month, 20% of it of 5 hours and 50% of a week
 /// (opencode.ai/v2/docs/console/go, Oct 2026). So $3 on a $15 model fills the 5 hours as much as
 /// $16 on an $80 one, and what all the models used adds up: once it reaches 100%, none can be used.
+///
+/// The windows don't roll; each starts over all at once, as the console shows (checked against
+/// it on 24 Oct 2026, see `periods`).
 enum OpenCodeProvider {
     static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share/opencode")
     static let database = folder.appendingPathComponent("opencode.db")
@@ -71,20 +74,54 @@ enum OpenCodeProvider {
         return (plan == .go ? entry.go : entry.plus).map { (entry.name, $0) }
     }
 
+    /// The 5 hours, the week and the month: their length, and the part of a model's monthly
+    /// allowance each one holds.
     private static let windows: [(minutes: Int, share: Double)] = [(5 * 60, 0.2), (7 * 24 * 60, 0.5), (30 * 24 * 60, 1)]
+
+    private static let utc: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.firstWeekday = 2  // Monday
+        return calendar
+    }()
+
+    /// The 5 hours, the week and the month in force at `now`, as OpenCode's console counts them:
+    /// - the 5 hours start with the first paid reply once the previous ones are over and end 5
+    ///   hours later, whatever happens in between; until the next reply there are none (nil);
+    /// - the week starts on Monday at 00:00 UTC;
+    /// - the month starts on the day and at the hour of the subscription, taken from the first Go
+    ///   reply on this Mac (`firstUse`), and lasts a calendar month.
+    static func periods(replies: [Reply], plan: Plan, firstUse: Date?, now: Date) -> [DateInterval?] {
+        var block: DateInterval?
+        let paid = replies.filter { $0.date <= now && $0.cost > 0 && allowance($0.model, plan: plan) != nil }
+        for reply in paid.sorted(by: { $0.date < $1.date }) where block.map({ reply.date >= $0.end }) ?? true {
+            block = DateInterval(start: reply.date, duration: Double(windows[0].minutes) * 60)
+        }
+        // Whole months since the first use: the current one starts after that many.
+        let month = firstUse.flatMap { first -> DateInterval? in
+            let months = utc.dateComponents([.month], from: first, to: now).month ?? 0
+            guard let from = utc.date(byAdding: .month, value: months, to: first),
+                  let to = utc.date(byAdding: .month, value: months + 1, to: first) else { return nil }
+            return DateInterval(start: from, end: to)
+        }
+        return [block.flatMap { $0.end > now ? $0 : nil }, utc.dateInterval(of: .weekOfYear, for: now), month]
+    }
 
     static func fetch() async throws -> ProviderSnapshot {
         let now = Date()
         if ProcessInfo.processInfo.environment["LIMITBAR_RENDER_OPENCODE_SAMPLE"] != nil {
-            var sample = snapshot(replies: sampleReplies(now: now), plan: .current, now: now, current: "gemini-4-argon-contributor")
+            var sample = snapshot(replies: sampleReplies(now: now), plan: .current, firstUse: now.addingTimeInterval(-10 * 86400),
+                                  now: now, current: "gemini-4-argon-contributor")
             sample.source = "sample"
             return sample
         }
         guard isConnected else { throw ProviderError.notSignedIn("OpenCode Go non collegato · collegalo dall'app OpenCode") }
-        guard let replies = OpenCodeDatabase.replies(since: now.addingTimeInterval(-30 * 86400)) else {
+        // A month is at most 31 days.
+        guard let replies = OpenCodeDatabase.replies(since: now.addingTimeInterval(-31 * 86400)) else {
             throw ProviderError.badResponse
         }
-        return snapshot(replies: replies, plan: .current, now: now, current: OpenCodeActivity.currentModel())
+        return snapshot(replies: replies, plan: .current, firstUse: OpenCodeDatabase.firstReply(), now: now,
+                        current: OpenCodeActivity.currentModel())
     }
 
     typealias Reply = (date: Date, model: String, cost: Double)
@@ -98,50 +135,35 @@ enum OpenCodeProvider {
     }
 
     /// The shared 5-hour, weekly and monthly windows (the month as an extra limit), and each
-    /// model's share of them over the last 30 days, the one chosen in OpenCode (`current`, a model
-    /// ID) first.
-    static func snapshot(replies: [Reply], plan: Plan, now: Date, current: String? = nil) -> ProviderSnapshot {
-        var snapshot = ProviderSnapshot(plan: plan.title, fiveHour: sharedWindow(0, replies: replies, plan: plan, now: now),
-                                        week: sharedWindow(1, replies: replies, plan: plan, now: now),
-                                        updatedAt: now, source: "local")
-        snapshot.extras = [ExtraLimit(label: "Mese", window: sharedWindow(2, replies: replies, plan: plan, now: now))]
-        snapshot.models = modelUsage(replies: replies, plan: plan, now: now, current: current)
-        snapshot.note = "Stima dall'uso su questo Mac"
+    /// model's share of them this month, the one chosen in OpenCode (`current`, a model ID) first.
+    static func snapshot(replies: [Reply], plan: Plan, firstUse: Date?, now: Date, current: String? = nil) -> ProviderSnapshot {
+        let periods = periods(replies: replies, plan: plan, firstUse: firstUse, now: now)
+        func window(_ index: Int) -> UsageWindow {
+            sharedWindow(index, period: periods[index], replies: replies, plan: plan, now: now)
+        }
+        var snapshot = ProviderSnapshot(plan: plan.title, fiveHour: window(0), week: window(1), updatedAt: now, source: "local")
+        snapshot.extras = [ExtraLimit(label: "Mese", window: window(2))]
+        snapshot.models = modelUsage(replies: replies, plan: plan, periods: periods, now: now, current: current)
         return snapshot
     }
 
     /// One shared window: every reply in it counts its cost over its model's cap for the window.
-    /// The window rolls, freeing up as replies leave it. Its "reset" is when it can be used again
-    /// if it's full (enough of the oldest replies have left to bring it under the limit), and
-    /// otherwise when the oldest reply leaves.
-    static func sharedWindow(_ index: Int, replies: [Reply], plan: Plan, now: Date) -> UsageWindow {
-        let minutes = windows[index].minutes, length = Double(minutes) * 60
-        let shares = replies
-            .filter { $0.date > now.addingTimeInterval(-length) && $0.date <= now && $0.cost > 0 }
-            .compactMap { reply -> (date: Date, percent: Double)? in
-                allowance(reply.model, plan: plan).map { (reply.date, reply.cost / ($0.dollars * windows[index].share) * 100) }
-            }
-            .sorted { $0.date < $1.date }
-        let total = shares.reduce(0) { $0 + $1.percent }
-        var resetsAt = shares.first.map { $0.date.addingTimeInterval(length) }
-        if total >= UsageWindow.exhausted {
-            var left = total
-            for share in shares {
-                left -= share.percent
-                if left < UsageWindow.exhausted {
-                    resetsAt = share.date.addingTimeInterval(length)
-                    break
-                }
-            }
-        }
-        return UsageWindow(usedPercent: min(total, 100), resetsAt: resetsAt, windowMinutes: minutes)
+    /// With no window in force (5 hours not started) nothing is used and nothing resets.
+    static func sharedWindow(_ index: Int, period: DateInterval?, replies: [Reply], plan: Plan, now: Date) -> UsageWindow {
+        let minutes = windows[index].minutes
+        guard let period else { return UsageWindow(usedPercent: 0, resetsAt: nil, windowMinutes: minutes) }
+        let total = replies
+            .filter { period.holds($0.date) && $0.date <= now && $0.cost > 0 }
+            .compactMap { reply in allowance(reply.model, plan: plan).map { reply.cost / ($0.dollars * windows[index].share) * 100 } }
+            .reduce(0, +)
+        return UsageWindow(usedPercent: min(total, 100), resetsAt: period.end, windowMinutes: minutes)
     }
 
-    /// The models used in the last 30 days, plus the one chosen in OpenCode even before it has
-    /// answered: that one first, then the ones that used most of the shared limits.
-    static func modelUsage(replies: [Reply], plan: Plan, now: Date, current: String? = nil) -> [ModelUsage] {
-        let monthStart = now.addingTimeInterval(-Double(windows[2].minutes) * 60)
-        let recent = replies.filter { $0.date > monthStart && $0.date <= now }
+    /// The models used this month, plus the one chosen in OpenCode even before it has answered:
+    /// that one first, then the ones that used most of the shared limits.
+    static func modelUsage(replies: [Reply], plan: Plan, periods: [DateInterval?], now: Date, current: String? = nil) -> [ModelUsage] {
+        let monthStart = periods[2]?.start ?? now.addingTimeInterval(-Double(windows[2].minutes) * 60)
+        let recent = replies.filter { $0.date >= monthStart && $0.date <= now }
         var byModel = Dictionary(grouping: recent, by: \.model)
         if let current, byModel[current] == nil { byModel[current] = [] }
         return byModel.compactMap { model, replies -> ModelUsage? in
@@ -150,11 +172,8 @@ enum OpenCodeProvider {
             let counted = allowance == nil ? replies : replies.filter { $0.cost > 0 }
             guard !counted.isEmpty || model == current else { return nil }
             func window(_ index: Int) -> ModelWindow {
-                let minutes = windows[index].minutes
-                let inside = counted.filter { $0.date > now.addingTimeInterval(-Double(minutes) * 60) }
-                return ModelWindow(used: inside.reduce(0) { $0 + $1.cost },
-                                   cap: allowance.map { $0.dollars * windows[index].share },
-                                   resetsAt: inside.map(\.date).min()?.addingTimeInterval(Double(minutes) * 60))
+                let inside = periods[index].map { period in counted.filter { period.holds($0.date) } } ?? []
+                return ModelWindow(used: inside.reduce(0) { $0 + $1.cost }, cap: allowance.map { $0.dollars * windows[index].share })
             }
             return ModelUsage(name: allowance?.name ?? allowances[model]?.name ?? model, requests: counted.count,
                               spent: counted.reduce(0) { $0 + $1.cost }, isFree: allowance == nil,
@@ -215,6 +234,11 @@ enum OpenCodeActivity {
     }
 }
 
+private extension DateInterval {
+    /// Whether `date` falls in the interval, its end excluded: that instant is the next one's.
+    func holds(_ date: Date) -> Bool { date >= start && date < end }
+}
+
 /// Read-only queries on OpenCode's SQLite database, which OpenCode keeps open and writes in WAL
 /// mode; a reader sees what's committed without getting in its way.
 enum OpenCodeDatabase {
@@ -229,6 +253,17 @@ enum OpenCodeDatabase {
              sqlite3_column_text(row, 1).map { String(cString: $0) } ?? "?",
              sqlite3_column_double(row, 2))
         }
+    }
+
+    /// The first Go reply this Mac has, failed ones too: the nearest thing to when the
+    /// subscription started, which sets when its months begin.
+    static func firstReply() -> Date? {
+        query("""
+            SELECT MIN(time_created) FROM message
+            WHERE json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.providerID') = ?
+            """, OpenCodeProvider.goProvider) { row -> Date? in
+            sqlite3_column_type(row, 0) == SQLITE_NULL ? nil : Date(timeIntervalSince1970: Double(sqlite3_column_int64(row, 0)) / 1000)
+        }?.first ?? nil
     }
 
     static func unfinishedSessions(updatedSince date: Date) -> Int? {
@@ -293,16 +328,11 @@ enum OpenCodeDatabase {
     /// Runs `sql` with `values` bound to its `?`s (text or integers), one `read` per row; nil when
     /// the database can't be opened or the query fails.
     private static func query<T>(_ sql: String, _ values: Any..., read: (OpaquePointer) -> T) -> [T]? {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(OpenCodeProvider.database.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+        guard let (db, statement) = prepare(sql) else { return nil }
+        defer {
+            sqlite3_finalize(statement)
             sqlite3_close(db)
-            return nil
         }
-        defer { sqlite3_close(db) }
-        sqlite3_busy_timeout(db, 1000)
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else { return nil }
-        defer { sqlite3_finalize(statement) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         for (index, value) in values.enumerated() {
             let position = Int32(index + 1)
@@ -320,5 +350,28 @@ enum OpenCodeDatabase {
             default: return nil
             }
         }
+    }
+
+    /// Opens the database read-only and prepares `sql`. While OpenCode is closed its WAL files
+    /// are gone, and a read-only connection can't create the one it needs to read (SQLite says
+    /// "unable to open database file"); with no WAL left the file is complete and nothing is
+    /// writing it, so it's then read as immutable, without those files.
+    private static func prepare(_ sql: String) -> (OpaquePointer, OpaquePointer)? {
+        let path = OpenCodeProvider.database.path
+        let walGone = !FileManager.default.fileExists(atPath: path + "-wal")
+        var attempts = [(path, SQLITE_OPEN_READONLY)]
+        if walGone, let url = URL(string: "file://" + (path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path) + "?immutable=1") {
+            attempts.append((url.absoluteString, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI))
+        }
+        for (name, flags) in attempts {
+            var db: OpaquePointer?
+            var statement: OpaquePointer?
+            if sqlite3_open_v2(name, &db, flags, nil) == SQLITE_OK, let db {
+                sqlite3_busy_timeout(db, 1000)
+                if sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement { return (db, statement) }
+            }
+            sqlite3_close(db)
+        }
+        return nil
     }
 }

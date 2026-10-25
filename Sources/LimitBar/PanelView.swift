@@ -183,7 +183,7 @@ private struct LimitLine: View {
     }
 }
 
-/// "✕ 5 ore esaurite · si liberano alle 13:43" on one line when it fits; otherwise the second
+/// "✕ 5 ore esaurite · si azzerano alle 13:43" on one line when it fits; otherwise the second
 /// half goes on a line of its own, under the first past the mark, rather than breaking anywhere.
 private struct AlertLine: View {
     let first: String
@@ -225,7 +225,6 @@ private struct Period {
     let plural: Bool
 
     var resets: String { plural ? "si azzerano" : "si azzera" }
-    var frees: String { plural ? "si liberano" : "si libera" }
 
     static let fiveHours = Period(label: "5 ore", exhausted: "5 ore esaurite", plural: true)
     static let week = Period(label: "settimana", exhausted: "settimana esaurita", plural: false)
@@ -303,11 +302,17 @@ private struct LimitsBlock: View {
                     ForEach(limits, id: \.period.label) { limit in line(limit.period, limit.window) }
                     if let forecast {
                         let period = Period.of(forecast.kind, forecast.window)
-                        HStack(alignment: .firstTextBaseline, spacing: 0) {
-                            Text(Terminal.fit("previsto", Terminal.labelColumns)).foregroundStyle(Terminal.dim).fixedSize()
-                            Text("\(period.exhausted) \(Format.at(forecast.date, now: now))")
-                                .fixedSize(horizontal: false, vertical: true)
+                        let label = Text(Terminal.fit("previsto", Terminal.labelColumns)).foregroundStyle(Terminal.dim)
+                        let at = Format.at(forecast.date, now: now)
+                        // On one line when it fits, otherwise the time under the rest, past the label.
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 0) { label; Text("\(period.exhausted) \(at)") }
+                            VStack(alignment: .leading, spacing: Spacing.line) {
+                                HStack(spacing: 0) { label; Text(period.exhausted) }
+                                Text(at).padding(.leading, Terminal.cols(Terminal.labelColumns))
+                            }
                         }
+                        .lineLimit(1)
                         .help("Al ritmo delle ultime ore, prima che il limite si azzeri")
                     }
                 }
@@ -416,15 +421,15 @@ private struct OpenCodeBlock: View {
                     (.month, month, paid?.month.cap),
                 ]
                 if let full = limits.first(where: { ($0.window?.effectivePercent(at: now) ?? 0) >= UsageWindow.exhausted }),
-                   let free = full.window?.resetsAt {
-                    AlertLine(first: full.period.exhausted, second: "\(full.period.frees) \(Format.at(free, now: now))")
+                   let reset = full.window?.resetsAt {
+                    AlertLine(first: full.period.exhausted, second: "\(full.period.resets) \(Format.at(reset, now: now))")
                         .padding(.top, Spacing.group)
                 }
                 if current?.isFree == true {
                     NoteLine(mark: "·", text: "modello gratuito: non consuma i limiti").padding(.top, Spacing.group)
                 }
                 VStack(alignment: .leading, spacing: Spacing.line) {
-                    ColumnHeader(middle: "uso", right: paid == nil ? "si libera" : "rimasti")
+                    ColumnHeader(middle: "uso", right: paid == nil ? "si azzera" : "rimasti")
                     ForEach(limits, id: \.period.label) { limit in
                         if let window = limit.window { sharedLine(limit.period, window, cap: limit.cap, model: paid?.name) }
                     }
@@ -461,14 +466,14 @@ private struct OpenCodeBlock: View {
     }
 
     /// A shared limit with what's left of it in dollars of the model in use, or, with no paid
-    /// model in use, the time until it frees up.
+    /// model in use, the time until it resets.
     private func sharedLine(_ period: Period, _ window: UsageWindow, cap: Double?, model: String?) -> some View {
         let value = window.effectivePercent(at: now)
         let left = cap.map { $0 * max(0, 100 - value) / 100 }
         let note = left.map(Format.dollars) ?? Format.countdown(window.resetsAt, now: now) ?? ""
         var tooltip: [String] = []
         if let left, let model { tooltip.append("Con \(model) restano \(Format.dollars(left))") }
-        if let resetsAt = window.resetsAt, resetsAt > now { tooltip.append(period.frees + " " + Format.at(resetsAt, now: now)) }
+        if let resetsAt = window.resetsAt, resetsAt > now { tooltip.append(period.resets + " " + Format.at(resetsAt, now: now)) }
         return LimitLine(label: period.label, percent: value, note: note, tint: tint)
             .help(tooltip.joined(separator: " · ").sentence)
     }
