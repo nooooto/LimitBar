@@ -53,7 +53,8 @@ struct PanelView: View {
             Text(Format.stamp(now)).foregroundStyle(Terminal.dim)
         }
         .padding(.horizontal, Terminal.padding)
-        .padding(.vertical, Spacing.section)
+        .padding(.top, Spacing.edge)
+        .padding(.bottom, Spacing.section)
     }
 
     private var footer: some View {
@@ -73,7 +74,9 @@ struct PanelView: View {
             MenuLine(title: "⏻ esci da LimitBar", shortcut: "⌘Q") { NSApp.terminate(nil) }
                 .keyboardShortcut("q", modifiers: .command)
         }
-        .padding(.vertical, Spacing.section - 4)
+        // The rows' own padding (4) makes up the rest of the room above and below.
+        .padding(.top, Spacing.section - 4)
+        .padding(.bottom, Spacing.edge - 4)
     }
 }
 
@@ -81,6 +84,9 @@ struct PanelView: View {
 /// groups of lines inside it the same room between them.
 private enum Spacing {
     static let section: CGFloat = 10
+    /// At the panel's top and bottom edges: what a section gets from a rule, whose line sits in
+    /// the middle of a line's height, so the first and last lines sit as far from the edge.
+    static let edge: CGFloat = section + Terminal.lineHeight / 2
     static let group: CGFloat = 8
     static let line: CGFloat = 3
 }
@@ -302,14 +308,20 @@ private struct LimitsBlock: View {
                     ForEach(limits, id: \.period.label) { limit in line(limit.period, limit.window) }
                     if let forecast {
                         let period = Period.of(forecast.kind, forecast.window)
-                        let label = Text(Terminal.fit("previsto", Terminal.labelColumns)).foregroundStyle(Terminal.dim)
-                        let at = Format.at(forecast.date, now: now)
-                        // On one line when it fits, otherwise the time under the rest, past the label.
+                        // On the grid like the limits above: what runs out from the bars' column,
+                        // when in the right-hand one, under the reset times.
+                        let what = HStack(spacing: 0) {
+                            Text(Terminal.fit("previsto", Terminal.labelColumns)).foregroundStyle(Terminal.dim).fixedSize()
+                            Text(period.exhausted).fixedSize()
+                        }
+                        let when = Text(Format.at(forecast.date, now: now)).fixedSize()
+                        // The longest pair ("settimana esaurita", "domani alle 08:09") leaves a
+                        // column free between them; a date further off may not fit, and goes under.
                         ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 0) { label; Text("\(period.exhausted) \(at)") }
-                            VStack(alignment: .leading, spacing: Spacing.line) {
-                                HStack(spacing: 0) { label; Text(period.exhausted) }
-                                Text(at).padding(.leading, Terminal.cols(Terminal.labelColumns))
+                            HStack(spacing: 0) { what; Spacer(minLength: 0); when }
+                            VStack(alignment: .trailing, spacing: Spacing.line) {
+                                what.frame(maxWidth: .infinity, alignment: .leading)
+                                when
                             }
                         }
                         .lineLimit(1)
