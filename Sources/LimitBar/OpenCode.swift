@@ -74,6 +74,9 @@ enum OpenCodeProvider {
         return (plan == .go ? entry.go : entry.plus).map { (entry.name, $0) }
     }
 
+    /// The label the monthly window goes by among the snapshot's extras.
+    static let monthLabel = "Mese"
+
     /// The 5 hours, the week and the month: their length, and the part of a model's monthly
     /// allowance each one holds.
     private static let windows: [(minutes: Int, share: Double)] = [(5 * 60, 0.2), (7 * 24 * 60, 0.5), (30 * 24 * 60, 1)]
@@ -142,7 +145,7 @@ enum OpenCodeProvider {
             sharedWindow(index, period: periods[index], replies: replies, plan: plan, now: now)
         }
         var snapshot = ProviderSnapshot(plan: plan.title, fiveHour: window(0), week: window(1), updatedAt: now, source: "local")
-        snapshot.extras = [ExtraLimit(label: "Mese", window: window(2))]
+        snapshot.extras = [ExtraLimit(label: monthLabel, window: window(2))]
         snapshot.models = modelUsage(replies: replies, plan: plan, periods: periods, now: now, current: current)
         return snapshot
     }

@@ -16,6 +16,9 @@ enum ProviderID: String, Codable, CaseIterable, Identifiable {
     /// Whether CostLedger prices the service's work: from Claude Code's and Codex's logs, and from
     /// the costs OpenCode records for each reply.
     var isInCostLedger: Bool { self == .claude || self == .codex || self == .opencode }
+
+    /// Read from this Mac alone (OpenCode's database), so it needs no connection.
+    var isLocal: Bool { self == .opencode }
 }
 
 struct UsageWindow: Codable, Equatable {
@@ -35,8 +38,12 @@ struct UsageWindow: Codable, Equatable {
 
 extension UsageWindow {
     /// Usage only grows until a window resets, so of two readings of the same window
-    /// the higher one is the more recent; a later reset time means a newer window.
-    static func merged(_ a: UsageWindow?, _ b: UsageWindow?) -> UsageWindow? {
+    /// the higher one is the more recent; a later reset time means a newer window. A reading
+    /// whose window has already reset says nothing about the current one.
+    static func merged(_ a: UsageWindow?, _ b: UsageWindow?, now: Date = Date()) -> UsageWindow? {
+        func over(_ window: UsageWindow?) -> Bool { window?.resetsAt.map { $0 <= now } ?? false }
+        if over(b) { return a ?? b }
+        if over(a) { return b ?? a }
         guard let a else { return b }
         guard let b else { return a }
         switch (a.resetsAt, b.resetsAt) {
@@ -78,6 +85,13 @@ struct ProviderSnapshot: Codable, Equatable {
 
     /// Made up for a layout render (see OpenCodeProvider): not to be cached or recorded.
     var isSample: Bool { source == "sample" }
+
+    /// OpenCode's monthly limit, kept among the extras as "Mese".
+    var month: UsageWindow? { extras.first { $0.label == OpenCodeProvider.monthLabel }?.window }
+
+    /// The windows that stop the whole service once used up: the 5 hours, the week and
+    /// OpenCode's month. A model's own week on Claude (extras) stops only that model.
+    var blockingWindows: [UsageWindow] { [fiveHour, week, month].compactMap { $0 } }
 }
 
 /// One model's part in OpenCode Go's shared limits, in dollars over the last 30 days.

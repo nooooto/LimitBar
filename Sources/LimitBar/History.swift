@@ -64,8 +64,9 @@ enum UsageHistory {
 
     /// Adds the snapshot's reading; returns false when it brought nothing new.
     static func record(_ snapshot: ProviderSnapshot, into samples: inout [UsageSample]) -> Bool {
-        let sample = UsageSample(date: snapshot.updatedAt, fiveHour: snapshot.fiveHour?.usedPercent,
-                                 week: snapshot.week?.usedPercent)
+        // A window already reset at the reading's time was empty then.
+        let sample = UsageSample(date: snapshot.updatedAt, fiveHour: snapshot.fiveHour?.effectivePercent(at: snapshot.updatedAt),
+                                 week: snapshot.week?.effectivePercent(at: snapshot.updatedAt))
         if let last = samples.last {
             guard sample.date > last.date else { return false }
             if sample.date.timeIntervalSince(last.date) < minimumGap {

@@ -14,6 +14,8 @@ final class UsageStore: ObservableObject {
         }
     }
     @Published private(set) var isRefreshing = false
+    /// A refresh asked for while another was running: it runs as soon as that one ends.
+    private var refreshAgain = false
     @Published private(set) var history: [ProviderID: [UsageSample]] = UsageHistory.load()
 
     let settings = AppSettings.shared
@@ -161,13 +163,14 @@ final class UsageStore: ObservableObject {
 
     private var lastAttempt: [ProviderID: Date] = [:]
     private var openCodePlan = OpenCodeProvider.Plan.current
-    private var blockedUntil: [ProviderID: Date] = [:]
+    /// While a service's server asks us to slow down (429), when to try again.
+    private var pausedUntil: [ProviderID: Date] = [:]
     private var backoff: [ProviderID: TimeInterval] = [:]
 
     /// `force` (the "Aggiorna ora" button) always tries once, even during a back-off.
     private func isDue(_ id: ProviderID, force: Bool, now: Date, spacing: TimeInterval) -> Bool {
         if force { return true }
-        if let until = blockedUntil[id], until > now { return false }
+        if let until = pausedUntil[id], until > now { return false }
         guard let last = lastAttempt[id] else { return true }
         // A little slack so the 2-minute timer doesn't miss a 2-minute spacing by milliseconds.
         return now.timeIntervalSince(last) >= spacing - 5
@@ -177,11 +180,15 @@ final class UsageStore: ObservableObject {
         updateValue()
         let now = Date()
         let claudeIsLocal = applyLocalClaude(now: now)
-        guard !isRefreshing, isOnline else { return }
+        guard !isRefreshing else {
+            refreshAgain = true
+            return
+        }
+        // Offline, only what's read from this Mac can be brought up to date.
         let due = settings.visibleProviders.filter {
             let spacing = $0 == .claude && claudeIsLocal
                 ? max(Self.spacingWhileLocal, refreshInterval) : minimumSpacing($0)
-            return isDue($0, force: force, now: now, spacing: spacing)
+            return (isOnline || $0.isLocal) && isDue($0, force: force, now: now, spacing: spacing)
         }
         guard !due.isEmpty else { return }
 
@@ -198,6 +205,10 @@ final class UsageStore: ObservableObject {
         }
         for (id, result) in results { apply(result, to: id) }
         isRefreshing = false
+        if refreshAgain {
+            refreshAgain = false
+            await refresh()
+        }
     }
 
     private nonisolated static func capture(
@@ -212,7 +223,7 @@ final class UsageStore: ObservableObject {
             let delay = min(retryAfter ?? backoff[id].map { $0 * 2 } ?? Self.initialBackoff, Self.maximumBackoff)
             backoff[id] = delay
             let retryAt = Date().addingTimeInterval(max(delay, 60))
-            blockedUntil[id] = retryAt
+            pausedUntil[id] = retryAt
             let when = Format.at(retryAt, now: Date())
             if state.snapshot != nil {
                 // The numbers on screen are still the last good ones, so this isn't an error.
@@ -228,7 +239,7 @@ final class UsageStore: ObservableObject {
         switch result {
         case .success(let snapshot):
             backoff[id] = nil
-            blockedUntil[id] = nil
+            pausedUntil[id] = nil
             // A log-based fallback can be older than what we already have from the API.
             if let current = state.snapshot, current.updatedAt > snapshot.updatedAt {
                 state.error = "Server non raggiungibile"
@@ -458,11 +469,11 @@ final class UsageStore: ObservableObject {
         id == .codex ? Icons.codexCloudArtwork : nil
     }
 
-    /// When a service can be used again, while one of its limits is used up: the later reset
-    /// if both are.
+    /// When a service can be used again, while one of its limits is used up: the latest reset
+    /// if several are.
     func blockedUntil(_ id: ProviderID, now: Date) -> Date? {
         guard let snapshot = state(id).snapshot else { return nil }
-        return [snapshot.fiveHour, snapshot.week].compactMap { $0 }
+        return snapshot.blockingWindows
             .filter { $0.effectivePercent(at: now) >= UsageWindow.exhausted }
             .compactMap(\.resetsAt)
             .max()
@@ -480,7 +491,7 @@ final class UsageStore: ObservableObject {
         let five = snapshot.fiveHour?.effectivePercent(at: now)
         let week = snapshot.week?.effectivePercent(at: now)
         switch settings.menuBarNumber {
-        case .highest: return [five, week].compactMap { $0 }.max()
+        case .highest: return snapshot.blockingWindows.map { $0.effectivePercent(at: now) }.max()
         case .fiveHour: return five ?? week
         case .week: return week ?? five
         }

@@ -414,11 +414,10 @@ private struct OpenCodeBlock: View {
                       workingSessions: workingSessions, now: now)
             if let snapshot {
                 let paid = current?.isFree == true ? nil : current
-                let month = snapshot.extras.first { $0.label == "Mese" }?.window
                 let limits: [(period: Period, window: UsageWindow?, cap: Double?)] = [
                     (.fiveHours, snapshot.fiveHour, paid?.fiveHour.cap),
                     (.week, snapshot.week, paid?.week.cap),
-                    (.month, month, paid?.month.cap),
+                    (.month, snapshot.month, paid?.month.cap),
                 ]
                 if let full = limits.first(where: { ($0.window?.effectivePercent(at: now) ?? 0) >= UsageWindow.exhausted }),
                    let reset = full.window?.resetsAt {
