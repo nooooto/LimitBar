@@ -13,10 +13,11 @@ Requisiti: Mac con processore Apple (M1 o successivo), macOS 14 o successivo.
      (servono per gli avvisi all'80% e al 90% dei limiti).
 
 2) COLLEGA CLAUDE
-   Nel pannello, sotto Claude, premi «accedi a Claude…»: si apre il browser.
-   Approva l'accesso, copia il codice che compare, torna al pannello e premi
-   «incolla codice». Se usi già Claude Code dal Terminale con il tuo account,
-   LimitBar lo trova da sola e non serve.
+   Nel pannello, nella scheda di Claude, premi «Accedi a Claude…»: si apre il
+   browser. Approva l'accesso, copia il codice che compare, torna al pannello
+   e premi «Incolla codice». Se usi già Claude Code dal Terminale con il tuo
+   account, LimitBar lo trova da sola e non serve. Per disconnetterti:
+   Impostazioni › Account.
 
 3) OPENCODE GO
    OpenCode non rende leggibili i limiti, quindi LimitBar li stima dall'uso
@@ -41,7 +42,7 @@ COSA MOSTRA
      limite è al 90% o oltre.
 
 IMPOSTAZIONI
-   Dal pannello: «impostazioni…» (⌘,). Puoi scegliere i servizi, ogni quanto
+   Dal pannello: pulsante «Impostazioni» (⌘,). Puoi scegliere i servizi, ogni quanto
    aggiornare, il numero nella barra dei menu e le notifiche.
    Per avviarla all'accensione del Mac: interruttore «Apri al login».
 

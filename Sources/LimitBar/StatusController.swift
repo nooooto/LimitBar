@@ -4,10 +4,10 @@ import QuartzCore
 import SwiftUI
 
 /// Menu bar item plus a borderless panel. We draw the panel ourselves (instead of using
-/// MenuBarExtra's window): a solid, terminal-like surface with rounded corners and our own shadow.
+/// MenuBarExtra's window): Liquid Glass with rounded corners and our own shadow.
 @MainActor
 final class StatusController: NSObject {
-    private static let cornerRadius: CGFloat = 10
+    private static let cornerRadius = Layout.panelRadius
     private static let gapBelowMenuBar: CGFloat = 6
 
     private let store = UsageStore()
@@ -51,6 +51,11 @@ final class StatusController: NSObject {
         panel.setContent(hosting, cornerRadius: Self.cornerRadius)
         panel.onResignKey = { [weak self] in self?.dismiss() }
         ICloudExport.write(store.states)
+        // LIMITBAR_OPEN_PANEL=1 opens the panel on its own once the data is in, to check the real
+        // glass, which --render can't draw, with a screenshot.
+        if ProcessInfo.processInfo.environment["LIMITBAR_OPEN_PANEL"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.showPanel() }
+        }
 
         // objectWillChange fires before the new value lands, so read it on the next turn.
         storeObserver = store.objectWillChange.sink { [weak self] _ in
@@ -278,10 +283,49 @@ private final class GlassPanel: NSPanel {
     }
 
     func setContent(_ view: NSView, cornerRadius: CGFloat) {
-        let surface = SolidSurface(content: view, cornerRadius: cornerRadius)
+        let surface: NSView
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = cornerRadius
+            glass.tintColor = Self.legibilityTint
+            glass.contentView = view
+            surface = glass
+        } else {
+            let effect = NSVisualEffectView()
+            effect.material = .popover
+            effect.state = .active
+            effect.blendingMode = .behindWindow
+            effect.maskImage = Self.roundedMask(radius: cornerRadius)
+            view.frame = effect.bounds
+            view.autoresizingMask = [.width, .height]
+            effect.addSubview(view)
+            surface = effect
+        }
         let container = ShadowContainer(surface: surface, cornerRadius: cornerRadius, margin: Self.shadowMargin)
         container.onClickOutsideSurface = { [weak self] in self?.onResignKey?() }
         contentView = container
+    }
+
+    /// What the glass tints its backdrop toward. The panel holds small text, rings and a chart;
+    /// over a busy window plain glass lets too much through and they lose contrast. Toward the
+    /// appearance's own background colour it stays glass but reads.
+    private static let legibilityTint = NSColor(name: "LimitBarGlassTint") { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(white: 0.06, alpha: 0.45)
+            : NSColor(white: 1, alpha: 0.45)
+    }
+
+    private static func roundedMask(radius: CGFloat) -> NSImage {
+        let edge = radius * 2 + 1
+        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        image.resizingMode = .stretch
+        return image
     }
 
 }
@@ -335,35 +379,4 @@ private final class ShadowContainer: NSView {
 /// An image view that lets clicks through to the status item's button underneath.
 private final class PassthroughImageView: NSImageView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
-/// The panel's surface: the terminal's solid background, rounded, with a hairline border.
-private final class SolidSurface: NSView {
-    init(content: NSView, cornerRadius: CGFloat) {
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = cornerRadius
-        layer?.cornerCurve = .continuous
-        layer?.masksToBounds = true
-        layer?.borderWidth = 1
-        content.frame = bounds
-        content.autoresizingMask = [.width, .height]
-        addSubview(content)
-        updateColors()
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateColors()
-    }
-
-    /// Layer colours don't follow the appearance by themselves.
-    private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = Terminal.background.cgColor
-            layer?.borderColor = Terminal.border.cgColor
-        }
-    }
 }

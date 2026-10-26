@@ -344,8 +344,8 @@ enum Icons {
     /// `height` is the status item button's: an image as tall as the button needs no centring,
     /// which the button and the colour layer over it rounded differently, half a point apart.
     static func statusLabel(_ parts: [StatusPart], workingGlyph: CGFloat = workingGlyph, height: CGFloat? = nil) -> StatusLabel {
-        // The panel's terminal font, so the menu bar reads like the panel.
-        let font = Terminal.nsFont(12, weight: .semibold)
+        // Digits all as wide, so the label keeps its width as the numbers change.
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         let gap: CGFloat = 3, spacing: CGFloat = 8
         let height = max(height ?? 0, 18, workingGlyph + 2)
         let icons = parts.map { restingGlyph + (workingGlyph - restingGlyph) * $0.currentGrowth }

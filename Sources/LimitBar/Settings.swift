@@ -126,6 +126,7 @@ final class AppSettings: ObservableObject {
 
 struct SettingsView: View {
     @ObservedObject var settings: AppSettings
+    @ObservedObject var store: UsageStore
 
     /// "1.0 (12)", as build.sh stamps it; nil outside the app bundle.
     private static let version: String? = {
@@ -140,6 +141,19 @@ struct SettingsView: View {
             Section("Generale") {
                 Toggle("Apri al login", isOn: Binding(get: { settings.launchAtLogin },
                                                       set: { settings.setLaunchAtLogin($0) }))
+            }
+
+            // Only for an account LimitBar signed into itself; Claude Code's own stays Claude Code's.
+            if store.claudeSignedInHere {
+                Section {
+                    LabeledContent("Claude") {
+                        Button("Disconnetti") { store.signOutOfClaude() }
+                    }
+                } header: {
+                    Text("Account")
+                } footer: {
+                    Text("LimitBar dimentica l'accesso a Claude fatto dal pannello. Claude Code non cambia.")
+                }
             }
 
             Section("Servizi") {
@@ -215,10 +229,10 @@ final class SettingsWindow {
     static let shared = SettingsWindow()
     private var window: NSWindow?
 
-    func show() {
+    func show(store: UsageStore) {
         AppSettings.shared.refreshLoginItem()
         if window == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(settings: .shared)))
+            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(settings: .shared, store: store)))
             window.title = "Impostazioni di LimitBar"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
