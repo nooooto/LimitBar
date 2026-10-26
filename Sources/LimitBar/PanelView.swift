@@ -699,11 +699,33 @@ private struct Footer: View {
             .help("Esci da LimitBar (⌘Q)")
         }
         .font(.system(size: 12))
-        .glassButton()
+        .panelButtons()
+    }
+}
+
+/// The footer's buttons: glass shaped like the cards, its corners concentric with the panel's
+/// (the system's glass button keeps its own, smaller radius whatever shape it's given).
+@available(macOS 26.0, *)
+private struct PanelButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 12)
+            .frame(minWidth: 32, minHeight: 30)
+            .opacity(isEnabled ? 1 : 0.5)
+            .contentShape(RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
 extension View {
+    @ViewBuilder fileprivate func panelButtons() -> some View {
+        if #available(macOS 26.0, *) { buttonStyle(PanelButtonStyle()) } else { buttonStyle(.bordered).controlSize(.large) }
+    }
+
     /// The system's glass buttons from macOS 26, bordered ones before.
     @ViewBuilder func glassButton() -> some View {
         if #available(macOS 26.0, *) { buttonStyle(.glass) } else { buttonStyle(.bordered) }
