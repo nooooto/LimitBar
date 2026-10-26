@@ -141,7 +141,7 @@ private struct ColumnHeader: View {
     var title: String = ""
     var bold = false
     var bar: String = ""
-    let middle: String
+    var middle: String = ""
     let right: String
 
     var body: some View {
@@ -304,7 +304,7 @@ private struct LimitsBlock: View {
                         .padding(.top, Spacing.group)
                 }
                 VStack(alignment: .leading, spacing: Spacing.line) {
-                    ColumnHeader(middle: "uso", right: "si azzera")
+                    ColumnHeader(right: "si azzera")
                     ForEach(limits, id: \.period.label) { limit in line(limit.period, limit.window) }
                     if let forecast {
                         let period = Period.of(forecast.kind, forecast.window)
@@ -440,7 +440,7 @@ private struct OpenCodeBlock: View {
                     NoteLine(mark: "·", text: "modello gratuito: non consuma i limiti").padding(.top, Spacing.group)
                 }
                 VStack(alignment: .leading, spacing: Spacing.line) {
-                    ColumnHeader(middle: "uso", right: paid == nil ? "si azzera" : "rimasti")
+                    ColumnHeader(right: paid == nil ? "si azzera" : "rimasti")
                     ForEach(limits, id: \.period.label) { limit in
                         if let window = limit.window { sharedLine(limit.period, window, cap: limit.cap, model: paid?.name) }
                     }
@@ -449,7 +449,7 @@ private struct OpenCodeBlock: View {
                 let users = models.filter { $0.fiveHour.share >= 0.5 }.sorted { $0.fiveHour.share > $1.fiveHour.share }
                 if !users.isEmpty {
                     VStack(alignment: .leading, spacing: Spacing.line) {
-                        ColumnHeader(title: "chi ha usato le 5 ore", middle: "uso", right: "spesi")
+                        ColumnHeader(title: "chi ha usato le 5 ore", right: "spesi")
                         ForEach(users.prefix(4)) { model in ShareLine(model: model) }
                     }
                     .padding(.top, Spacing.group)
