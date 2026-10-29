@@ -93,7 +93,7 @@ enum OpenCodeProvider {
     ///   hours later, whatever happens in between; until the next reply there are none (nil);
     /// - the week starts on Monday at 00:00 UTC;
     /// - the month starts on the day and at the hour of the subscription, taken from the first Go
-    ///   reply on this Mac (`firstUse`), and lasts a calendar month.
+    ///   reply (`firstUse`), and lasts a calendar month.
     static func periods(replies: [Reply], plan: Plan, firstUse: Date?, now: Date) -> [DateInterval?] {
         var block: DateInterval?
         let paid = replies.filter { $0.date <= now && $0.cost > 0 && allowance($0.model, plan: plan) != nil }
@@ -123,8 +123,21 @@ enum OpenCodeProvider {
         guard let replies = OpenCodeDatabase.replies(since: now.addingTimeInterval(-31 * 86400)) else {
             throw ProviderError.badResponse
         }
-        return snapshot(replies: replies, plan: .current, firstUse: OpenCodeDatabase.firstReply(), now: now,
+        return snapshot(replies: replies, plan: .current, firstUse: firstUse(), now: now,
                         current: OpenCodeActivity.currentModel())
+    }
+
+    private static let firstUseKey = "opencode.firstUse"
+
+    /// When Go was first used, which sets when its months begin: the earliest Go reply ever
+    /// seen, kept in LimitBar's defaults so it outlives OpenCode's database (a new Mac, a
+    /// reinstall) rather than starting the months over from whatever reply comes next.
+    private static func firstUse() -> Date? {
+        let defaults = UserDefaults.standard
+        let remembered = defaults.object(forKey: firstUseKey) as? Date
+        let first = [remembered, OpenCodeDatabase.firstReply()].compactMap { $0 }.min()
+        if let first, first != remembered { defaults.set(first, forKey: firstUseKey) }
+        return first
     }
 
     typealias Reply = (date: Date, model: String, cost: Double)
