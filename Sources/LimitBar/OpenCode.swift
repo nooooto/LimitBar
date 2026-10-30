@@ -16,7 +16,7 @@ import SQLite3
 enum OpenCodeProvider {
     static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share/opencode")
     static let database = folder.appendingPathComponent("opencode.db")
-    /// The provider OpenCode files Go replies under (and its key under, in auth.json).
+    /// The provider OpenCode files Go replies under (and its key under, in `credential`).
     static let goProvider = "opencode-go"
 
     enum Plan: String, CaseIterable, Identifiable {
@@ -81,7 +81,7 @@ enum OpenCodeProvider {
     /// allowance each one holds.
     private static let windows: [(minutes: Int, share: Double)] = [(5 * 60, 0.2), (7 * 24 * 60, 0.5), (30 * 24 * 60, 1)]
 
-    private static let utc: Calendar = {
+    fileprivate static let utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         calendar.firstWeekday = 2  // Monday
@@ -198,8 +198,10 @@ enum OpenCodeProvider {
         .sorted { ($0.inUse ? 1 : 0, $0.month.share, $0.spent) > ($1.inUse ? 1 : 0, $1.month.share, $1.spent) }
     }
 
-    /// Whether OpenCode has a Go key, in its auth.json (only the key's presence is read).
+    /// Whether OpenCode has a Go key: since OpenCode 2.2 an active row in the database's
+    /// `credential` table, before that an entry in auth.json (only the key's presence is read).
     private static var isConnected: Bool {
+        if OpenCodeDatabase.hasCredential(for: goProvider) { return true }
         guard let data = try? Data(contentsOf: folder.appendingPathComponent("auth.json")),
               let auth = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
         return auth[goProvider] != nil
@@ -250,6 +252,115 @@ enum OpenCodeActivity {
     }
 }
 
+/// OpenCode 2.2 records each reply's tokens but leaves its cost at 0, so the cost is worked out
+/// here as OpenCode used to: from the models.dev prices OpenCode keeps in its `kv` table, in
+/// dollars per million tokens, with their overrides for long prompts and their multipliers
+/// (DeepSeek costs double at weekday peak hours). The catalog is 11 MB, so it's parsed again only
+/// when its digest changes.
+enum OpenCodePricing {
+    /// A reply's tokens, its reasoning counted as output.
+    typealias Tokens = (input: Int, output: Int, cacheRead: Int, cacheWrite: Int)
+
+    private static let lock = NSLock()
+    private static var cached: (digest: String, prices: [String: [String: Any]])?
+
+    /// What a reply cost: what OpenCode recorded, or, when that's 0, the price of its tokens.
+    /// Still 0 for a reply without tokens (it failed) or a model the catalog doesn't price.
+    static func cost(recorded: Double, provider: String, model: String, tokens: Tokens, at date: Date) -> Double {
+        recorded > 0 ? recorded : estimate(provider: provider, model: model, tokens: tokens, at: date) ?? 0
+    }
+
+    static func estimate(provider: String, model: String, tokens: Tokens, at date: Date) -> Double? {
+        guard let price = prices()["\(provider)/\(model)"], let text = price["text"] as? [String: Any] else { return nil }
+        let context = tokens.input + tokens.cacheRead + tokens.cacheWrite
+        let input = rates(text["input"], context: context, date: date)
+        let output = rates(text["output"], context: context, date: date)
+        let dollars = Double(tokens.input) * input.price + Double(tokens.cacheRead) * (input.read ?? input.price)
+            + Double(tokens.cacheWrite) * (input.write ?? input.price) + Double(tokens.output) * output.price
+        let factor = (price["multipliers"] as? [[String: Any]] ?? [])
+            .filter { holds($0["when"], context: context, date: date) }
+            .compactMap { number($0["factor"]) }
+            .reduce(1, *)
+        return dollars / 1_000_000 * factor
+    }
+
+    /// One side's prices (input or output), with the overrides for this prompt length applied.
+    private static func rates(_ value: Any?, context: Int, date: Date) -> (price: Double, read: Double?, write: Double?) {
+        var rates: (price: Double, read: Double?, write: Double?) = (0, nil, nil)
+        guard let side = value as? [String: Any] else { return rates }
+        let overrides = (side["overrides"] as? [[String: Any]] ?? []).filter { holds($0["when"], context: context, date: date) }
+        for entry in [side] + overrides {
+            let cache = entry["cache"] as? [String: Any]
+            rates.price = number(entry["price"]) ?? rates.price
+            rates.read = number(cache?["read"]) ?? rates.read
+            rates.write = number(cache?["write"]) ?? rates.write
+        }
+        return rates
+    }
+
+    /// Whether every test in `when` holds: `context` (the prompt's tokens), `date` (the UTC day,
+    /// yyyy-MM-dd), `utc_days`, `utc_hours` (HH:mm), or `any` / `all` of nested ones. No `when`
+    /// always holds; a test this doesn't know fails, so an unknown surcharge is left out.
+    private static func holds(_ when: Any?, context: Int, date: Date) -> Bool {
+        guard let when else { return true }
+        guard let tests = when as? [String: Any] else { return false }
+        let utc = OpenCodeProvider.utc.dateComponents([.year, .month, .day, .hour, .minute, .weekday], from: date)
+        return tests.allSatisfy { key, test in
+            let nested = test as? [[String: Any]] ?? []
+            switch key {
+            case "any": return nested.contains { holds($0, context: context, date: date) }
+            case "all": return nested.allSatisfy { holds($0, context: context, date: date) }
+            case "context": return compare(Double(context), test, number)
+            case "date":
+                return compare(String(format: "%04d-%02d-%02d", utc.year ?? 0, utc.month ?? 0, utc.day ?? 0), test) { $0 as? String }
+            case "utc_hours": return compare(String(format: "%02d:%02d", utc.hour ?? 0, utc.minute ?? 0), test) { $0 as? String }
+            case "utc_days":
+                let day = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][((utc.weekday ?? 1) - 1) % 7]
+                return ((test as? [String: Any])?["in"] as? [String])?.contains(day) ?? false
+            default: return false
+            }
+        }
+    }
+
+    /// Whether `value` is within every bound of `test`, such as {"gte": "01:00", "lt": "04:00"}.
+    private static func compare<T: Comparable>(_ value: T, _ test: Any, _ bound: (Any?) -> T?) -> Bool {
+        guard let bounds = test as? [String: Any], !bounds.isEmpty else { return false }
+        return bounds.allSatisfy { op, raw in
+            guard let limit = bound(raw) else { return false }
+            switch op {
+            case "gt": return value > limit
+            case "gte": return value >= limit
+            case "lt": return value < limit
+            case "lte": return value <= limit
+            case "eq": return value == limit
+            default: return false
+            }
+        }
+    }
+
+    private static func number(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
+
+    /// The catalog's prices by "provider/model", parsed again only when OpenCode has a new catalog.
+    private static func prices() -> [String: [String: Any]] {
+        lock.withLock {
+            guard let digest = OpenCodeDatabase.catalogDigest() else { return cached?.prices ?? [:] }
+            if let cached, cached.digest == digest { return cached.prices }
+            guard let body = OpenCodeDatabase.catalog(),
+                  let catalog = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any] else {
+                return cached?.prices ?? [:]
+            }
+            var prices: [String: [String: Any]] = [:]
+            for (provider, entry) in catalog {
+                for (model, info) in (entry as? [String: Any])?["models"] as? [String: Any] ?? [:] {
+                    if let cost = (info as? [String: Any])?["cost"] as? [String: Any] { prices["\(provider)/\(model)"] = cost }
+                }
+            }
+            cached = (digest, prices)
+            return prices
+        }
+    }
+}
+
 private extension DateInterval {
     /// Whether `date` falls in the interval, its end excluded: that instant is the next one's.
     func holds(_ date: Date) -> Bool { date >= start && date < end }
@@ -257,26 +368,66 @@ private extension DateInterval {
 
 /// Read-only queries on OpenCode's SQLite database, which OpenCode keeps open and writes in WAL
 /// mode; a reader sees what's committed without getting in its way.
+///
+/// The tables are OpenCode 2.2's: messages in `session_message` (its `type` is the role, the model
+/// is `data.model.id` and `data.model.providerID`), sessions in `session_v2`, keys in `credential`.
 enum OpenCodeDatabase {
+    /// Whether an active key for `integration` is stored (its value is never read).
+    static func hasCredential(for integration: String) -> Bool {
+        (query("SELECT COUNT(*) FROM credential WHERE integration_id = ? AND ifnull(active, 1) != 0", integration) {
+            sqlite3_column_int64($0, 0)
+        }?.first ?? 0) > 0
+    }
+
+    /// The tokens of the reply in `data`, its reasoning counted as output.
+    private static let tokenColumns = """
+        ifnull(json_extract(data, '$.tokens.input'), 0),
+        ifnull(json_extract(data, '$.tokens.output'), 0) + ifnull(json_extract(data, '$.tokens.reasoning'), 0),
+        ifnull(json_extract(data, '$.tokens.cache.read'), 0), ifnull(json_extract(data, '$.tokens.cache.write'), 0)
+        """
+
+    private static func tokens(_ row: OpaquePointer, from column: Int32) -> OpenCodePricing.Tokens {
+        func int(_ offset: Int32) -> Int { Int(sqlite3_column_int64(row, column + offset)) }
+        return (int(0), int(1), int(2), int(3))
+    }
+
     /// Go replies since `date`: when each was made, by which model, and what it cost.
     static func replies(since date: Date) -> [OpenCodeProvider.Reply]? {
         query("""
-            SELECT time_created, json_extract(data, '$.modelID'), json_extract(data, '$.cost') FROM message
-            WHERE time_created >= ? AND json_extract(data, '$.role') = 'assistant'
-              AND json_extract(data, '$.providerID') = ?
+            SELECT time_created, json_extract(data, '$.model.id'), json_extract(data, '$.cost'), \(tokenColumns)
+            FROM session_message
+            WHERE time_created >= ? AND type = 'assistant'
+              AND json_extract(data, '$.model.providerID') = ?
             """, Int64(date.timeIntervalSince1970 * 1000), OpenCodeProvider.goProvider) { row in
             (Date(timeIntervalSince1970: Double(sqlite3_column_int64(row, 0)) / 1000),
              sqlite3_column_text(row, 1).map { String(cString: $0) } ?? "?",
-             sqlite3_column_double(row, 2))
+             sqlite3_column_double(row, 2), tokens(row, from: 3))
+        }?.map { created, model, recorded, tokens in
+            (created, model, OpenCodePricing.cost(recorded: recorded, provider: OpenCodeProvider.goProvider,
+                                                  model: model, tokens: tokens, at: created))
         }
+    }
+
+    /// The digest of the models.dev catalog OpenCode keeps, which changes with its prices.
+    static func catalogDigest() -> String? {
+        query("SELECT json_extract(value, '$.digest') FROM kv WHERE key = 'models-dev:v2:catalog:meta'") { row in
+            sqlite3_column_text(row, 0).map { String(cString: $0) }
+        }?.first ?? nil
+    }
+
+    /// The catalog itself, as JSON: providers, their models and the models' prices.
+    static func catalog() -> String? {
+        query("SELECT json_extract(value, '$.body') FROM kv WHERE key = 'models-dev:v2:catalog'") { row in
+            sqlite3_column_text(row, 0).map { String(cString: $0) }
+        }?.first ?? nil
     }
 
     /// The first Go reply this Mac has, failed ones too: the nearest thing to when the
     /// subscription started, which sets when its months begin.
     static func firstReply() -> Date? {
         query("""
-            SELECT MIN(time_created) FROM message
-            WHERE json_extract(data, '$.role') = 'assistant' AND json_extract(data, '$.providerID') = ?
+            SELECT MIN(time_created) FROM session_message
+            WHERE type = 'assistant' AND json_extract(data, '$.model.providerID') = ?
             """, OpenCodeProvider.goProvider) { row -> Date? in
             sqlite3_column_type(row, 0) == SQLITE_NULL ? nil : Date(timeIntervalSince1970: Double(sqlite3_column_int64(row, 0)) / 1000)
         }?.first ?? nil
@@ -284,15 +435,15 @@ enum OpenCodeDatabase {
 
     static func unfinishedSessions(updatedSince date: Date) -> Int? {
         query("""
-            SELECT COUNT(DISTINCT session_id) FROM message
-            WHERE time_updated >= ? AND json_extract(data, '$.role') = 'assistant'
+            SELECT COUNT(DISTINCT session_id) FROM session_message
+            WHERE time_updated >= ? AND type = 'assistant'
               AND json_extract(data, '$.time.completed') IS NULL
             """, Int64(date.timeIntervalSince1970 * 1000)) { Int(sqlite3_column_int64($0, 0)) }?.first
     }
 
     /// The session updated last, with the model the database recorded for it.
     static func latestSession() -> (id: String, model: (provider: String, model: String)?)? {
-        query("SELECT id, model FROM session ORDER BY time_updated DESC LIMIT 1") { row -> (String, (String, String)?) in
+        query("SELECT id, model FROM session_v2 ORDER BY time_updated DESC LIMIT 1") { row -> (String, (String, String)?) in
             let id = sqlite3_column_text(row, 0).map { String(cString: $0) } ?? ""
             let json = sqlite3_column_text(row, 1).map { String(cString: $0) }
             let model = json.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
@@ -316,27 +467,26 @@ enum OpenCodeDatabase {
     /// Replies from any provider finished and last written after `cursor` (ms), oldest first.
     static func finishedReplies(updatedAfter cursor: Int64) -> [FinishedReply]? {
         query("""
-            SELECT m.id, m.time_created, m.time_updated, json_extract(m.data, '$.modelID'),
-                   json_extract(m.data, '$.cost'), s.directory,
-                   json_extract(m.data, '$.tokens.input'),
-                   ifnull(json_extract(m.data, '$.tokens.output'), 0) + ifnull(json_extract(m.data, '$.tokens.reasoning'), 0),
-                   json_extract(m.data, '$.tokens.cache.read'), json_extract(m.data, '$.tokens.cache.write')
-            FROM message m LEFT JOIN session s ON s.id = m.session_id
-            WHERE m.time_updated > ? AND json_extract(m.data, '$.role') = 'assistant'
+            SELECT m.id, m.time_created, m.time_updated, json_extract(m.data, '$.model.id'),
+                   json_extract(m.data, '$.cost'), s.directory, json_extract(m.data, '$.model.providerID'), \(tokenColumns)
+            FROM session_message m LEFT JOIN session_v2 s ON s.id = m.session_id
+            WHERE m.time_updated > ? AND m.type = 'assistant'
               AND json_extract(m.data, '$.time.completed') IS NOT NULL
             ORDER BY m.time_updated
             """, cursor) { row in
             func text(_ column: Int32) -> String? { sqlite3_column_text(row, column).map { String(cString: $0) } }
-            func int(_ column: Int32) -> Int { Int(sqlite3_column_int64(row, column)) }
-            return FinishedReply(id: text(0) ?? "", created: Date(timeIntervalSince1970: Double(sqlite3_column_int64(row, 1)) / 1000),
-                                 updated: sqlite3_column_int64(row, 2), model: text(3) ?? "?",
-                                 cost: sqlite3_column_double(row, 4), folder: text(5),
-                                 input: int(6), output: int(7), cacheRead: int(8), cacheWrite: int(9))
+            let created = Date(timeIntervalSince1970: Double(sqlite3_column_int64(row, 1)) / 1000)
+            let model = text(3) ?? "?", tokens = tokens(row, from: 7)
+            let cost = OpenCodePricing.cost(recorded: sqlite3_column_double(row, 4), provider: text(6) ?? "",
+                                            model: model, tokens: tokens, at: created)
+            return FinishedReply(id: text(0) ?? "", created: created, updated: sqlite3_column_int64(row, 2), model: model,
+                                 cost: cost, folder: text(5), input: tokens.input, output: tokens.output,
+                                 cacheRead: tokens.cacheRead, cacheWrite: tokens.cacheWrite)
         }
     }
 
     static func lastSessionFolder() -> String? {
-        query("SELECT directory FROM session ORDER BY time_updated DESC LIMIT 1") { row in
+        query("SELECT directory FROM session_v2 ORDER BY time_updated DESC LIMIT 1") { row in
             sqlite3_column_text(row, 0).map { String(cString: $0) }
         }?.first ?? nil
     }

@@ -285,8 +285,9 @@ final class CostLedger {
         return archive.days
     }
 
-    /// OpenCode keeps its replies, already priced, in a database rather than logs: each one it has
-    /// finished since the last read, with the folder of its session.
+    /// OpenCode keeps its replies in a database rather than logs, priced (by OpenCodePricing when
+    /// OpenCode leaves the cost at 0, as 2.2 does): each one it has finished since the last read,
+    /// with the folder of its session.
     private func readOpenCode() {
         guard FileManager.default.fileExists(atPath: OpenCodeProvider.database.path),
               let replies = OpenCodeDatabase.finishedReplies(updatedAfter: state.openCodeCursor) else { return }
