@@ -86,8 +86,65 @@ final class UsageStore: ObservableObject {
     func state(_ id: ProviderID) -> ProviderState { states[id] ?? ProviderState() }
 
     func refreshIfStale() {
+        Task { await checkServiceStatus(force: true) }
         if let lastRefresh, Date().timeIntervalSince(lastRefresh) < 30 { return }
         Task { await refresh() }
+    }
+
+    // MARK: Service status
+
+    /// What the status pages say about the services shown (see ServiceStatusReader); empty while
+    /// the check is switched off.
+    @Published private(set) var serviceStatus: [ProviderID: ServiceStatus] = [:]
+    private var statusCheckedAt: Date?
+
+    /// Reads the status pages every 5 minutes, or after 2 when the panel opens (`force`). Offline,
+    /// nothing is asked and the last readings age out as if the pages didn't answer.
+    func checkServiceStatus(force: Bool = false) async {
+        // LIMITBAR_FAKE_STATUS=degraded|outage shows trouble on Claude and OpenCode without asking
+        // the pages, to check the strip and the menu bar dot (like LIMITBAR_RENDER_OPENCODE_SAMPLE).
+        if let fake = ProcessInfo.processInfo.environment["LIMITBAR_FAKE_STATUS"] {
+            let health: ServiceHealth = fake == "outage" ? .outage : .degraded
+            serviceStatus = [
+                .claude: ServiceStatus(health: health, text: "Claude Code: prestazioni ridotte · Elevated errors on Opus",
+                                       page: ServiceStatusReader.claudePage, checkedAt: Date()),
+                .opencode: ServiceStatus(health: health, text: "DeepSeek V4.1 Flash: rallentato",
+                                         page: ServiceStatusReader.openCodePage, checkedAt: Date()),
+            ]
+            return
+        }
+        guard settings.checkServiceStatus else {
+            statusCheckedAt = nil
+            if !serviceStatus.isEmpty { serviceStatus = [:] }
+            return
+        }
+        let now = Date()
+        if let last = statusCheckedAt, now.timeIntervalSince(last) < (force ? 120 : 300) { return }
+        statusCheckedAt = now
+        let providers = settings.visibleProviders.filter(ServiceStatusReader.checks)
+        let model = OpenCodeActivity.currentModel().map { (id: $0, name: OpenCodeProvider.modelName($0) ?? $0) }
+        var fresh: [ProviderID: ServiceStatus?] = [:]
+        if isOnline {
+            await withTaskGroup(of: (ProviderID, ServiceStatus?).self) { group in
+                for id in providers { group.addTask { (id, await ServiceStatusReader.fetch(id, model: model)) } }
+                for await (id, status) in group { fresh[id] = .some(status) }
+            }
+        }
+        let statuses = Self.statusesAfterCheck(previous: serviceStatus, fresh: fresh, enabled: settings.checkServiceStatus,
+                                               providers: providers, now: Date())
+        if statuses != serviceStatus { serviceStatus = statuses }
+    }
+
+    /// The statuses after a check: none while switched off; for each service shown, the fresh
+    /// reading, or the last one while its page doesn't answer (`fresh` nil or missing).
+    nonisolated static func statusesAfterCheck(previous: [ProviderID: ServiceStatus], fresh: [ProviderID: ServiceStatus?],
+                                               enabled: Bool, providers: [ProviderID], now: Date) -> [ProviderID: ServiceStatus] {
+        guard enabled else { return [:] }
+        var result: [ProviderID: ServiceStatus] = [:]
+        for id in providers {
+            result[id] = ServiceStatusReader.merged(previous: previous[id], fresh: fresh[id] ?? nil, now: now)
+        }
+        return result
     }
 
     // MARK: Settings, history, notifications
@@ -178,6 +235,8 @@ final class UsageStore: ObservableObject {
 
     func refresh(force: Bool = false) async {
         updateValue()
+        // On its own, so the early returns below don't skip it; it spaces itself out.
+        Task { await checkServiceStatus() }
         let now = Date()
         let claudeIsLocal = applyLocalClaude(now: now)
         guard !isRefreshing else {
@@ -437,8 +496,14 @@ final class UsageStore: ObservableObject {
             // From 90% (and while used up) a working glyph takes the number's red, so it stands out.
             let glyph = coloured ? (number.urgent ? .systemRed : glyphColor(id)) : nil
             let artwork = coloured && !number.urgent ? glyphArtwork(id) : nil
+            let dot: NSColor? = switch serviceStatus[id]?.health {
+            case .degraded: .systemOrange
+            case .outage: .systemRed
+            default: nil
+            }
             return Icons.StatusPart(logo: logo, text: number.text, alert: number.alert, glyph: glyph,
-                                    glyphArtwork: artwork, growth: growth[id], tint: growth[id].map { min(max($0, 0), 1) })
+                                    glyphArtwork: artwork, growth: growth[id], tint: growth[id].map { min(max($0, 0), 1) },
+                                    statusDot: dot)
         }
         return Icons.statusLabel(parts, height: height)
     }

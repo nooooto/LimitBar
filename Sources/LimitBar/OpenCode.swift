@@ -67,6 +67,9 @@ enum OpenCodeProvider {
         "hy3": ("Hy3", 60, 240),
     ]
 
+    /// The model's name as OpenCode shows it ("DeepSeek V4.1 Flash"), when it's in the table.
+    static func modelName(_ id: String) -> String? { allowances[id]?.name }
+
     /// A model missing from the table gets the smallest allowance, so its window fills up early
     /// rather than late.
     private static func allowance(_ model: String, plan: Plan) -> (name: String, dollars: Double)? {

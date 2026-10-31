@@ -319,6 +319,8 @@ enum Icons {
         /// How much of the working colour (or artwork) shows, 0 to 1, so it fades in and out
         /// with the growth instead of switching. Nil: all of it.
         var tint: CGFloat? = nil
+        /// A dot on the glyph's corner while the service's status page reports trouble (orange or red).
+        var statusDot: NSColor? = nil
 
         var currentGrowth: CGFloat { growth ?? (glyph != nil || glyphArtwork != nil ? 1 : 0) }
     }
@@ -379,6 +381,12 @@ enum Icons {
                     } else if tint < 1 {
                         drawFaded(alpha: 1 - tint) { drawPlainGlyph(part.logo, in: rect, color: .black) }
                     }
+                    if colour, let dot = part.statusDot {
+                        // Top right of the glyph, inside the image: the menu bar is shared, so
+                        // nothing may be drawn past it.
+                        dot.setFill()
+                        NSBezierPath(ovalIn: NSRect(x: rect.maxX - 4, y: min(rect.maxY - 4, height - 5), width: 5, height: 5)).fill()
+                    }
                     x += icon + gap
                     if (part.alert != nil) == colour, let context = NSGraphicsContext.current?.cgContext {
                         let color = part.alert ?? NSColor.black
@@ -398,7 +406,7 @@ enum Icons {
 
         let base = layer(colour: false)
         base.isTemplate = true
-        let hasColour = parts.contains { $0.alert != nil || workingTint($0) > 0 }
+        let hasColour = parts.contains { $0.alert != nil || workingTint($0) > 0 || $0.statusDot != nil }
         return StatusLabel(base: base, colour: hasColour ? layer(colour: true) : nil)
     }
 }

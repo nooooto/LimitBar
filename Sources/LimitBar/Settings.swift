@@ -51,6 +51,9 @@ final class AppSettings: ObservableObject {
     @Published var showValue: Bool {
         didSet { Self.defaults.set(showValue, forKey: "settings.showValue") }
     }
+    @Published var checkServiceStatus: Bool {
+        didSet { Self.defaults.set(checkServiceStatus, forKey: "settings.checkServiceStatus") }
+    }
     /// OpenCode's plan sets its models' limits and can't be read from anywhere.
     @Published var openCodePlan: OpenCodeProvider.Plan {
         didSet { Self.defaults.set(openCodePlan.rawValue, forKey: "settings.openCodePlan") }
@@ -77,6 +80,7 @@ final class AppSettings: ObservableObject {
         notifyWeekly = d.object(forKey: "settings.notifyWeekly") as? Bool ?? true
         showHistory = d.object(forKey: "settings.showHistory") as? Bool ?? true
         showValue = d.object(forKey: "settings.showValue") as? Bool ?? true
+        checkServiceStatus = d.object(forKey: "settings.checkServiceStatus") as? Bool ?? true
         openCodePlan = OpenCodeProvider.Plan.current
     }
 
@@ -206,10 +210,11 @@ struct SettingsView: View {
             Section {
                 Toggle("Mostra il grafico delle ultime 24 ore", isOn: $settings.showHistory)
                 Toggle("Mostra il valore a prezzi API", isOn: $settings.showValue)
+                Toggle("Controlla lo stato dei servizi", isOn: $settings.checkServiceStatus)
             } header: {
                 Text("Pannello")
             } footer: {
-                Text("Il valore è stimato sui dati locali di Claude Code e OpenCode, ai prezzi API pubblici convertiti in euro al cambio BCE del giorno. Le chat su claude.ai non sono incluse.")
+                Text("Il valore è stimato sui dati locali di Claude Code e OpenCode, ai prezzi API pubblici convertiti in euro al cambio BCE del giorno. Le chat su claude.ai non sono incluse. Lo stato dei servizi viene dalle pagine di stato di Anthropic e OpenCode, lette ogni 5 minuti.")
             }
 
             if let version = Self.version {

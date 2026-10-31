@@ -16,11 +16,11 @@ struct PanelView: View {
                     Card(action: { id.openUsagePage() }) {
                         if id == .opencode {
                             OpenCodeCard(state: store.state(id), now: context.date,
-                                         workingSessions: store.activity.sessions(id))
+                                         workingSessions: store.activity.sessions(id), status: store.serviceStatus[id])
                         } else {
                             LimitsCard(provider: id, state: store.state(id), now: context.date,
                                        samples: store.history[id] ?? [], showHistory: settings.showHistory,
-                                       workingSessions: store.activity.sessions(id))
+                                       workingSessions: store.activity.sessions(id), status: store.serviceStatus[id])
                             if id == .claude, store.state(.claude).needsSignIn || store.claudeLoginPending {
                                 ClaudeSignIn(store: store)
                             }
@@ -308,6 +308,7 @@ private struct LimitsCard: View {
     let samples: [UsageSample]
     let showHistory: Bool
     let workingSessions: Int
+    let status: ServiceStatus?
 
     private var snapshot: ProviderSnapshot? { state.snapshot }
 
@@ -333,6 +334,7 @@ private struct LimitsCard: View {
     var body: some View {
         CardHeader(provider: provider, detail: snapshot?.plan ?? provider.toolName, snapshot: snapshot,
                    workingSessions: workingSessions, now: now)
+        ServiceStatusStrip(status: status)
         if let snapshot {
             exhaustedBanner(limits, now: now)
             Gauges(gauges: limits.enumerated().map { index, limit in
@@ -365,6 +367,29 @@ private struct LimitsCard: View {
 private extension String {
     /// "settimana esaurita" from "Settimana esaurita", for the middle of a sentence.
     var lowercasedFirst: String { prefix(1).lowercased() + dropFirst() }
+}
+
+/// What the service's status page reports, when it isn't all well: orange for reduced
+/// performance, red for an outage, a quiet note for maintenance. A click opens the page.
+private struct ServiceStatusStrip: View {
+    let status: ServiceStatus?
+
+    var body: some View {
+        if let status, status.health != .operational {
+            let text = status.text ?? ""
+            Button {
+                NSWorkspace.shared.open(status.page)
+            } label: {
+                switch status.health {
+                case .outage: Banner(symbol: "xmark.octagon.fill", text: text, color: Color(nsColor: .systemRed))
+                case .degraded: Banner(symbol: "exclamationmark.triangle.fill", text: text, color: Color(nsColor: .systemOrange))
+                default: Note(symbol: "wrench.and.screwdriver", text: text)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Apri la pagina di stato")
+        }
+    }
 }
 
 /// The service's error, or a notice that its numbers are still the last good ones.
@@ -443,6 +468,7 @@ private struct OpenCodeCard: View {
     let state: ProviderState
     let now: Date
     let workingSessions: Int
+    let status: ServiceStatus?
 
     private let tint = ProviderID.opencode.tint
     private var snapshot: ProviderSnapshot? { state.snapshot }
@@ -452,6 +478,7 @@ private struct OpenCodeCard: View {
         let current = models.first(where: \.inUse)
         CardHeader(provider: .opencode, detail: current?.name ?? snapshot?.plan, snapshot: snapshot,
                    workingSessions: workingSessions, now: now)
+        ServiceStatusStrip(status: status)
         Group {
             if let snapshot {
                 let paid = current?.isFree == true ? nil : current
