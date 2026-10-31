@@ -46,16 +46,24 @@ enum ClaudeProvider {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ProviderError.badResponse
         }
+        return snapshot(usage: json, plan: creds.plan, at: Date())
+    }
 
-        func window(_ any: Any?) -> UsageWindow? {
+    /// The windows' lengths, which Anthropic doesn't send; the pace (see Pace) needs them.
+    static let fiveHourMinutes = 5 * 60
+    static let weekMinutes = 7 * 24 * 60
+
+    /// The usage endpoint's reply as a snapshot.
+    static func snapshot(usage json: [String: Any], plan: String?, at date: Date) -> ProviderSnapshot {
+        func window(_ any: Any?, minutes: Int) -> UsageWindow? {
             guard let d = any as? [String: Any], let used = Parse.number(d["utilization"]) else { return nil }
-            return UsageWindow(usedPercent: used, resetsAt: (d["resets_at"] as? String).flatMap(Parse.isoDate))
+            return UsageWindow(usedPercent: used, resetsAt: (d["resets_at"] as? String).flatMap(Parse.isoDate), windowMinutes: minutes)
         }
 
         // Model-specific weekly buckets (seven_day_opus, seven_day_sonnet, ...) show up as extra rows.
         var extras: [ExtraLimit] = []
         for key in json.keys.sorted() where key.hasPrefix("seven_day_") && key != "seven_day_oauth_apps" {
-            guard let w = window(json[key]) else { continue }
+            guard let w = window(json[key], minutes: weekMinutes) else { continue }
             let name = Parse.capitalizedPlan(String(key.dropFirst("seven_day_".count)))
             extras.append(ExtraLimit(label: "Settimana \(name)", window: w))
         }
@@ -65,11 +73,11 @@ enum ClaudeProvider {
         }
 
         return ProviderSnapshot(
-            plan: creds.plan,
-            fiveHour: window(json["five_hour"]),
-            week: window(json["seven_day"]),
+            plan: plan,
+            fiveHour: window(json["five_hour"], minutes: fiveHourMinutes),
+            week: window(json["seven_day"], minutes: weekMinutes),
             extras: extras,
-            updatedAt: Date(),
+            updatedAt: date,
             source: "api"
         )
     }
@@ -88,11 +96,12 @@ enum ClaudeProvider {
               let updated = Parse.number(json["updated_at"])
         else { return nil }
 
-        func window(_ any: Any?) -> UsageWindow? {
+        func window(_ any: Any?, minutes: Int) -> UsageWindow? {
             guard let d = any as? [String: Any], let used = Parse.number(d["used_percentage"]) else { return nil }
-            return UsageWindow(usedPercent: used, resetsAt: Parse.number(d["resets_at"]).map(Date.init(timeIntervalSince1970:)))
+            return UsageWindow(usedPercent: used, resetsAt: Parse.number(d["resets_at"]).map(Date.init(timeIntervalSince1970:)),
+                               windowMinutes: minutes)
         }
-        let fiveHour = window(limits["five_hour"]), week = window(limits["seven_day"])
+        let fiveHour = window(limits["five_hour"], minutes: fiveHourMinutes), week = window(limits["seven_day"], minutes: weekMinutes)
         guard fiveHour != nil || week != nil else { return nil }
 
         return ProviderSnapshot(

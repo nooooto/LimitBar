@@ -40,7 +40,15 @@ extension UsageWindow {
     /// Usage only grows until a window resets, so of two readings of the same window
     /// the higher one is the more recent; a later reset time means a newer window. A reading
     /// whose window has already reset says nothing about the current one.
+    /// The window's length is the same whichever reading wins, so a reading that lacks it (an
+    /// older cache) takes it from the other.
     static func merged(_ a: UsageWindow?, _ b: UsageWindow?, now: Date = Date()) -> UsageWindow? {
+        guard var merged = pick(a, b, now: now) else { return nil }
+        merged.windowMinutes = merged.windowMinutes ?? a?.windowMinutes ?? b?.windowMinutes
+        return merged
+    }
+
+    private static func pick(_ a: UsageWindow?, _ b: UsageWindow?, now: Date) -> UsageWindow? {
         func over(_ window: UsageWindow?) -> Bool { window?.resetsAt.map { $0 <= now } ?? false }
         if over(b) { return a ?? b }
         if over(a) { return b ?? a }

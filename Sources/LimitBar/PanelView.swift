@@ -119,12 +119,14 @@ private struct CardHeader: View {
 }
 
 /// A limit as a ring filling up in the service's colour (orange, then red, as it runs out),
-/// with its name and a line or two under it.
+/// with its name and a line or two under it; with a `pace`, a tick where even use would be and
+/// a line saying how far from it the use is.
 private struct Gauge: View {
     let title: String
     let percent: Double
     let tint: Color
     let lines: [String]
+    var pace: Pace? = nil
 
     var body: some View {
         let color = level(percent, normal: tint)
@@ -135,6 +137,10 @@ private struct Gauge: View {
                     .trim(from: 0, to: min(max(percent, 0), 100) / 100)
                     .stroke(color, style: StrokeStyle(lineWidth: Layout.ringLine, lineCap: .round))
                     .rotationEffect(.degrees(-90))
+                if let pace {
+                    PaceTick(fraction: pace.expected)
+                        .stroke(.secondary, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                }
                 Text("\(Int(percent.rounded()))%")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .monospacedDigit()
@@ -149,10 +155,42 @@ private struct Gauge: View {
                         .monospacedDigit()
                         .foregroundStyle(index == 0 ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
                 }
+                if let pace {
+                    Text(pace.text)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(paceColor(pace.state))
+                        .help("Dove saresti usando il limite in modo costante fino al reset")
+                }
             }
             .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func paceColor(_ state: Pace.State) -> AnyShapeStyle {
+        switch state {
+        case .onTrack: return AnyShapeStyle(.secondary)
+        case .ahead: return AnyShapeStyle(Color(nsColor: .systemOrange))
+        case .behind: return AnyShapeStyle(Color(nsColor: .systemGreen))
+        }
+    }
+}
+
+/// A short radial mark across the ring at `fraction` of the way round, clockwise from the top.
+private struct PaceTick: Shape {
+    let fraction: Double
+
+    func path(in rect: CGRect) -> Path {
+        let angle = fraction * 2 * .pi - .pi / 2
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        func point(_ radius: CGFloat) -> CGPoint {
+            CGPoint(x: center.x + radius * CGFloat(cos(angle)), y: center.y + radius * CGFloat(sin(angle)))
+        }
+        var path = Path()
+        path.move(to: point((Layout.ring - Layout.ringLine) / 2 - 1))
+        path.addLine(to: point((Layout.ring + Layout.ringLine) / 2 + 1))
+        return path
     }
 }
 
@@ -297,12 +335,14 @@ private struct LimitsCard: View {
                    workingSessions: workingSessions, now: now)
         if let snapshot {
             exhaustedBanner(limits, now: now)
-            Gauges(gauges: limits.map { limit in
+            Gauges(gauges: limits.enumerated().map { index, limit in
                 guard let window = limit.window else {
                     return Gauge(title: limit.period.label, percent: 0, tint: provider.tint, lines: ["Nessun limite"])
                 }
+                // The 5 hours (first) are used in bursts: they keep the forecast, not a pace.
                 return Gauge(title: limit.period.label, percent: window.effectivePercent(at: now), tint: provider.tint,
-                             lines: [timeLine(limit.period, window, now: now)])
+                             lines: [timeLine(limit.period, window, now: now)],
+                             pace: index == 0 ? nil : Pace.of(window, now: now))
             })
             if let forecast {
                 let period = Period.of(forecast.kind, forecast.window)
@@ -452,7 +492,9 @@ private struct OpenCodeCard: View {
         let left = cap.map { $0 * max(0, 100 - value) / 100 }
         var lines = [timeLine(period, window, now: now)]
         if let left { lines.insert("\(Format.dollars(left)) rimasti", at: 0) }
-        return Gauge(title: period.label, percent: value, tint: tint, lines: lines)
+        // The 5 hours are used in bursts: no pace for them.
+        let pace = period.label == Period.fiveHours.label ? nil : Pace.of(window, now: now)
+        return Gauge(title: period.label, percent: value, tint: tint, lines: lines, pace: pace)
     }
 }
 
