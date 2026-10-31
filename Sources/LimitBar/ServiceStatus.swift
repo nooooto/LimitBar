@@ -25,6 +25,9 @@ enum ServiceStatusReader {
     static let openCodePage = URL(string: "https://status.opencode.ai")!
     static let openCodeStatus = URL(string: "https://status.opencode.ai/api/status")!
 
+    /// How often the pages are read.
+    static let interval: TimeInterval = 5 * 60
+
     /// How long the last good reading stands in for a page that stopped answering.
     static let keepFor: TimeInterval = 30 * 60
 

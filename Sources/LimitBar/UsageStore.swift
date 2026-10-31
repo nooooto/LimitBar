@@ -46,6 +46,7 @@ final class UsageStore: ObservableObject {
             if let cached, cached.source == "api" { lastAttempt[id] = cached.updatedAt }
         }
         scheduleTimer()
+        scheduleStatusTimer()
         settingsObserver = settings.objectWillChange.sink { [weak self] _ in
             // objectWillChange fires before the new value is stored.
             DispatchQueue.main.async { self?.settingsChanged() }
@@ -97,6 +98,17 @@ final class UsageStore: ObservableObject {
     /// the check is switched off.
     @Published private(set) var serviceStatus: [ProviderID: ServiceStatus] = [:]
     private var statusCheckedAt: Date?
+    /// The status pages have their own 5 minutes, whatever the refresh interval (up to 30 minutes
+    /// in Low Power Mode), so an outage shows and clears on time.
+    private var statusTimer: Timer?
+
+    private func scheduleStatusTimer() {
+        let timer = Timer.scheduledTimer(withTimeInterval: ServiceStatusReader.interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.checkServiceStatus() }
+        }
+        timer.tolerance = 30
+        statusTimer = timer
+    }
 
     /// Reads the status pages every 5 minutes, or after 2 when the panel opens (`force`). Offline,
     /// nothing is asked and the last readings age out as if the pages didn't answer.
@@ -119,7 +131,8 @@ final class UsageStore: ObservableObject {
             return
         }
         let now = Date()
-        if let last = statusCheckedAt, now.timeIntervalSince(last) < (force ? 120 : 300) { return }
+        // A few seconds of slack so the 5-minute timer doesn't miss the 5-minute spacing.
+        if let last = statusCheckedAt, now.timeIntervalSince(last) < (force ? 120 : ServiceStatusReader.interval - 10) { return }
         statusCheckedAt = now
         let providers = settings.visibleProviders.filter(ServiceStatusReader.checks)
         let model = OpenCodeActivity.currentModel().map { (id: $0, name: OpenCodeProvider.modelName($0) ?? $0) }
