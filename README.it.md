@@ -26,12 +26,14 @@ LimitBar è una piccola app nativa per macOS. Mostra quanto hai usato di ogni li
 
 ## Installazione
 
-1. Scarica `LimitBar.zip` dalle [Release](../../releases) e scompattalo.
-2. Trascina LimitBar in Applicazioni e aprila. LimitBar non è autenticata da Apple, quindi la prima volta il Mac dice che non può verificare lo sviluppatore. Vai in **Impostazioni di Sistema › Privacy e sicurezza**, scorri in basso e premi **Apri comunque**. In alternativa, dal Terminale:
+1. Scarica `LimitBar.dmg` dalle [Release](../../releases) e aprilo.
+2. Nella finestra che compare, trascina LimitBar sulla cartella Applicazioni, poi aprila da Applicazioni. LimitBar non è autenticata da Apple, quindi la prima volta il Mac dice che non può verificare lo sviluppatore. Vai in **Impostazioni di Sistema › Privacy e sicurezza**, scorri in basso e premi **Apri comunque**. In alternativa, dal Terminale:
    ```bash
    xattr -dr com.apple.quarantine /Applications/LimitBar.app
    ```
 3. Clicca l'icona nella barra dei menu per aprire il pannello. Quando il Mac lo chiede, consenti le notifiche.
+
+Nella release c'è anche `LimitBar.zip`: Safari lo scompatta da solo dopo il download, quindi trovi LimitBar nella cartella Download, pronta da trascinare in Applicazioni.
 
 ### Compilarla dal codice
 

@@ -26,12 +26,14 @@ LimitBar is a small native macOS app. It shows how much of each limit you've use
 
 ## Install
 
-1. Download `LimitBar.zip` from [Releases](../../releases) and unzip it.
-2. Drag LimitBar to Applications and open it. LimitBar isn't notarized by Apple, so the first time macOS says it can't verify the developer. Go to **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. You can also run this in Terminal:
+1. Download `LimitBar.dmg` from [Releases](../../releases) and open it.
+2. In the window that appears, drag LimitBar onto the Applications folder, then open it from Applications. LimitBar isn't notarized by Apple, so the first time macOS says it can't verify the developer. Go to **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. You can also run this in Terminal:
    ```bash
    xattr -dr com.apple.quarantine /Applications/LimitBar.app
    ```
 3. Click the icon in the menu bar to open the panel. Allow notifications when macOS asks.
+
+There's also `LimitBar.zip` in the release: Safari unzips it for you after downloading, so you'll find LimitBar in your Downloads folder, ready to drag to Applications.
 
 ### Build from source
 
