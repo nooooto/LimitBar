@@ -589,7 +589,7 @@ private struct ValueCard: View {
         let projects = store.monthProjects(providers, shown: Self.projectsShown, now: now)
         let comparison = store.monthComparison(providers, now: now)
         if total > 0 {
-            Card {
+            Card(action: { SpendWindow.shared.show(store: store) }) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Valore di \(Format.month(now))")

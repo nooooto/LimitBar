@@ -214,6 +214,9 @@ enum Format {
         return decimal(value, digits: 0) + " €"
     }
 
+    /// "3 nov", for a day in the Spesa chart.
+    static func day(_ day: Date) -> String { date.string(from: day) }
+
     /// "22 ott": the date of the ECB rate in use.
     static func rateDate(_ day: String) -> String {
         isoDay.date(from: day).map(date.string) ?? day
