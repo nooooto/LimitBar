@@ -66,3 +66,7 @@ Tutto il resto lo legge dai file sul Mac: i registri di Claude Code e Codex e il
 ## Licenza
 
 [MIT](LICENSE)
+
+## Una nota dello sviluppatore
+
+LimitBar è nato come progetto personale e l'ho costruito interamente con Claude Code. Ho pensato che potesse tornare utile a qualcuno e ho deciso di pubblicarlo, senza troppe pretese. Non sono uno sviluppatore particolarmente talentuoso o preparato: se trovate problemi o criticità, potete [segnalarli](../../issues) o correggerli liberamente con una pull request.
