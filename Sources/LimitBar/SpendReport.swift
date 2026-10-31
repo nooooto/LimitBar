@@ -8,10 +8,10 @@ enum SpendPeriod: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .today: return "Oggi"
-        case .week: return "7 giorni"
-        case .thirtyDays: return "30 giorni"
-        case .month: return "Questo mese"
+        case .today: return L("Today")
+        case .week: return L("7 days")
+        case .thirtyDays: return L("30 days")
+        case .month: return L("This month")
         }
     }
 

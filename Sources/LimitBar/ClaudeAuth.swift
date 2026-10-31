@@ -74,14 +74,14 @@ enum ClaudeAuth {
     static func validTokens() async throws -> Tokens? {
         guard var tokens = load() else { return nil }
         if let expiresAt = tokens.expiresAt, expiresAt.addingTimeInterval(-120) < Date() {
-            guard let refresh = tokens.refreshToken else { throw ProviderError.expired("Accesso scaduto") }
+            guard let refresh = tokens.refreshToken else { throw ProviderError.expired(L("Sign-in expired")) }
             do {
                 tokens = try await tokenRequest(
                     ["grant_type": "refresh_token", "refresh_token": refresh, "client_id": clientID],
                     previous: tokens
                 )
             } catch ProviderError.http(let code) where (400..<500).contains(code) {
-                throw ProviderError.expired("Accesso scaduto")
+                throw ProviderError.expired(L("Sign-in expired"))
             }
             save(tokens)
         }

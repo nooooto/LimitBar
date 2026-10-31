@@ -10,9 +10,9 @@ enum MenuBarNumber: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .highest: return "Il limite più usato"
-        case .fiveHour: return "5 ore"
-        case .week: return "Settimana"
+        case .highest: return L("The most used limit")
+        case .fiveHour: return L("5 hours")
+        case .week: return L("Week")
         }
     }
 }
@@ -51,6 +51,10 @@ final class AppSettings: ObservableObject {
     @Published var showValue: Bool {
         didSet { Self.defaults.set(showValue, forKey: "settings.showValue") }
     }
+    /// Dollars or euros for the value at API prices (see Currency); the default follows the Mac's region.
+    @Published var currency: Currency {
+        didSet { Self.defaults.set(currency.rawValue, forKey: Currency.defaultsKey) }
+    }
     @Published var checkServiceStatus: Bool {
         didSet { Self.defaults.set(checkServiceStatus, forKey: "settings.checkServiceStatus") }
     }
@@ -81,6 +85,7 @@ final class AppSettings: ObservableObject {
         showHistory = d.object(forKey: "settings.showHistory") as? Bool ?? true
         showValue = d.object(forKey: "settings.showValue") as? Bool ?? true
         checkServiceStatus = d.object(forKey: "settings.checkServiceStatus") as? Bool ?? true
+        currency = Currency.current
         openCodePlan = OpenCodeProvider.Plan.current
     }
 
@@ -142,25 +147,25 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Generale") {
-                Toggle("Apri al login", isOn: Binding(get: { settings.launchAtLogin },
+            Section(L("General")) {
+                Toggle(L("Open at login"), isOn: Binding(get: { settings.launchAtLogin },
                                                       set: { settings.setLaunchAtLogin($0) }))
             }
 
             // Only for an account LimitBar signed into itself; Claude Code's own stays Claude Code's.
             if store.claudeSignedInHere {
                 Section {
-                    LabeledContent("Claude") {
-                        Button("Disconnetti") { store.signOutOfClaude() }
+                    LabeledContent(L("Claude")) {
+                        Button(L("Sign out")) { store.signOutOfClaude() }
                     }
                 } header: {
-                    Text("Account")
+                    Text(L("Account"))
                 } footer: {
-                    Text("LimitBar dimentica l'accesso a Claude fatto dal pannello. Claude Code non cambia.")
+                    Text(L("LimitBar forgets the Claude sign-in made from the panel. Claude Code doesn't change."))
                 }
             }
 
-            Section("Servizi") {
+            Section(L("Services")) {
                 ForEach(ProviderID.allCases) { id in
                     Toggle(isOn: settings.binding(for: id)) {
                         HStack(spacing: 8) {
@@ -170,56 +175,61 @@ struct SettingsView: View {
                     }
                 }
                 if settings.enabledProviders.contains(.opencode) {
-                    Picker("Piano OpenCode", selection: $settings.openCodePlan) {
+                    Picker(L("OpenCode plan"), selection: $settings.openCodePlan) {
                         ForEach(OpenCodeProvider.Plan.allCases) { Text($0.title).tag($0) }
                     }
                 }
             }
 
             Section {
-                Picker("Aggiorna ogni", selection: $settings.refreshMinutes) {
-                    ForEach(AppSettings.refreshChoices, id: \.self) { Text("\($0) minuti").tag($0) }
+                Picker(L("Refresh every"), selection: $settings.refreshMinutes) {
+                    ForEach(AppSettings.refreshChoices, id: \.self) { Text(L("%d minutes", $0)).tag($0) }
                 }
             } header: {
-                Text("Aggiornamento")
+                Text(L("Refresh"))
             } footer: {
-                Text("Claude viene letto al massimo ogni 5 minuti, per non superare il limite di richieste di Anthropic.")
+                Text(L("Claude is read at most every 5 minutes, to stay within Anthropic's request limit."))
             }
 
             Section {
-                Picker("Numero mostrato", selection: $settings.menuBarNumber) {
+                Picker(L("Number shown"), selection: $settings.menuBarNumber) {
                     ForEach(MenuBarNumber.allCases) { Text($0.title).tag($0) }
                 }
             } header: {
-                Text("Barra dei menu")
+                Text(L("Menu bar"))
             } footer: {
-                Text("Il numero diventa arancione dall'80% e rosso dal 90%. Quando un limite è esaurito, mostra tra quanto torna disponibile.")
+                Text(L("The number turns orange from 80% and red from 90%. When a limit is used up, it shows how long until it's back."))
             }
 
             Section {
-                Toggle("Avvisa all'80% e al 90% di un limite", isOn: $settings.notifyThresholds)
-                Toggle("Avvisa quando un limite esaurito torna disponibile", isOn: $settings.notifyResets)
-                Toggle("Avvisa quando Claude o OpenCode finiscono un lavoro lungo", isOn: $settings.notifyFinished)
-                Toggle("Riepilogo della settimana ogni lunedì", isOn: $settings.notifyWeekly)
+                Toggle(L("Alert at 80% and 90% of a limit"), isOn: $settings.notifyThresholds)
+                Toggle(L("Alert when a used-up limit is available again"), isOn: $settings.notifyResets)
+                Toggle(L("Alert when Claude or OpenCode finish a long job"), isOn: $settings.notifyFinished)
+                Toggle(L("Weekly summary every Monday"), isOn: $settings.notifyWeekly)
             } header: {
-                Text("Notifiche")
+                Text(L("Notifications"))
             } footer: {
-                Text("Un lavoro è lungo se dura almeno 2 minuti. L'avviso non arriva se stai già usando Claude, OpenCode, il terminale o l'editor.")
+                Text(L("A job is long if it lasts at least 2 minutes. There's no alert while you're already using Claude, OpenCode, the terminal or the editor."))
             }
 
             Section {
-                Toggle("Mostra il grafico delle ultime 24 ore", isOn: $settings.showHistory)
-                Toggle("Mostra il valore a prezzi API", isOn: $settings.showValue)
-                Toggle("Controlla lo stato dei servizi", isOn: $settings.checkServiceStatus)
+                Toggle(L("Show the chart of the last 24 hours"), isOn: $settings.showHistory)
+                Toggle(L("Show the value at API prices"), isOn: $settings.showValue)
+                Picker(L("Currency"), selection: $settings.currency) {
+                    ForEach(Currency.allCases) { Text($0.title).tag($0) }
+                }
+                Toggle(L("Check the services' status"), isOn: $settings.checkServiceStatus)
             } header: {
-                Text("Pannello")
+                Text(L("Panel"))
             } footer: {
-                Text("Il valore è stimato sui dati locali di Claude Code e OpenCode, ai prezzi API pubblici convertiti in euro al cambio BCE del giorno. Le chat su claude.ai non sono incluse. Lo stato dei servizi viene dalle pagine di stato di Anthropic e OpenCode, lette ogni 5 minuti.")
+                Text(L("The value is estimated from Claude Code's and OpenCode's local data at public API prices")
+                     + (settings.currency == .euro ? L(", in euros at the ECB's daily rate") : "")
+                     + L(". Chats on claude.ai aren't included. The services' status comes from Anthropic's and OpenCode's status pages, read every 5 minutes."))
             }
 
             if let version = Self.version {
-                Section("Informazioni") {
-                    LabeledContent("Versione", value: version)
+                Section(L("About")) {
+                    LabeledContent(L("Version"), value: version)
                 }
             }
         }
@@ -238,7 +248,7 @@ final class SettingsWindow {
         AppSettings.shared.refreshLoginItem()
         if window == nil {
             let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(settings: .shared, store: store)))
-            window.title = "Impostazioni di LimitBar"
+            window.title = L("LimitBar Settings")
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.center()

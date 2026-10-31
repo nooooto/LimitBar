@@ -8,7 +8,7 @@ mkdir -p "$DIR"
 chmod 700 "$DIR"
 
 if [ ! -x "$DIR/venv/bin/python" ]; then
-    echo "Installo Telethon (libreria Telegram) in $DIR/venv…"
+    echo "Installing Telethon (Telegram library) in $DIR/venv…"
     python3 -m venv "$DIR/venv"
     "$DIR/venv/bin/pip" install --quiet --disable-pip-version-check telethon
 fi

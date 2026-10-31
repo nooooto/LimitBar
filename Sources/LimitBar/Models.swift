@@ -147,9 +147,9 @@ enum ProviderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notSignedIn(let m), .expired(let m): return m
-        case .rateLimited: return "Troppe richieste"
-        case .http(let code): return "Errore del server (HTTP \(code))"
-        case .badResponse: return "Risposta inattesa"
+        case .rateLimited: return L("Too many requests")
+        case .http(let code): return L("Server error (HTTP %d)", code)
+        case .badResponse: return L("Unexpected response")
         }
     }
 }

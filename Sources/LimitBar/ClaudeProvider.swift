@@ -16,7 +16,7 @@ enum ClaudeProvider {
         } else {
             creds = try loadCLICredentials()
             if let exp = creds.expiresAt, exp < Date() {
-                throw ProviderError.expired("Accesso a Claude Code scaduto")
+                throw ProviderError.expired(L("Claude Code sign-in expired"))
             }
         }
 
@@ -39,7 +39,7 @@ enum ClaudeProvider {
         }
         if http.statusCode == 401 || http.statusCode == 403 {
             ClaudeAuth.forgetRememberedTokens()
-            throw ProviderError.expired("Accesso scaduto")
+            throw ProviderError.expired(L("Sign-in expired"))
         }
         if http.statusCode == 429 { throw ProviderError.rateLimited(retryAfter: Parse.retryAfter(http)) }
         guard (200..<300).contains(http.statusCode) else { throw ProviderError.http(http.statusCode) }
@@ -48,6 +48,11 @@ enum ClaudeProvider {
         }
         return snapshot(usage: json, plan: creds.plan, at: Date())
     }
+
+    /// The extra limits' labels, which also identify them: a model's own week ("Week Opus") and
+    /// the usage paid on top of the plan.
+    static let modelWeekPrefix = "Week "
+    static let extraUsageLabel = "Extra usage"
 
     /// The windows' lengths, which Anthropic doesn't send; the pace (see Pace) needs them.
     static let fiveHourMinutes = 5 * 60
@@ -65,11 +70,11 @@ enum ClaudeProvider {
         for key in json.keys.sorted() where key.hasPrefix("seven_day_") && key != "seven_day_oauth_apps" {
             guard let w = window(json[key], minutes: weekMinutes) else { continue }
             let name = Parse.capitalizedPlan(String(key.dropFirst("seven_day_".count)))
-            extras.append(ExtraLimit(label: "Settimana \(name)", window: w))
+            extras.append(ExtraLimit(label: modelWeekPrefix + name, window: w))
         }
         if let extra = json["extra_usage"] as? [String: Any], extra["is_enabled"] as? Bool == true,
            let used = Parse.number(extra["utilization"]) {
-            extras.append(ExtraLimit(label: "Uso extra", window: UsageWindow(usedPercent: used)))
+            extras.append(ExtraLimit(label: extraUsageLabel, window: UsageWindow(usedPercent: used)))
         }
 
         return ProviderSnapshot(
@@ -122,7 +127,7 @@ enum ClaudeProvider {
               let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
               let oauth = json["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String
-        else { throw ProviderError.notSignedIn("Accesso non effettuato") }
+        else { throw ProviderError.notSignedIn(L("Not signed in")) }
 
         let expiresAt = Parse.number(oauth["expiresAt"]).map { Date(timeIntervalSince1970: $0 / 1000) }
         return Credentials(token: token, expiresAt: expiresAt, plan: planName(oauth))

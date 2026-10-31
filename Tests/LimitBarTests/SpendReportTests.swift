@@ -109,7 +109,10 @@ private func summary() -> CostLedger.Summary {
 }
 
 @Test func axisLabelsKeepADecimalForSmallAmounts() {
-    #expect(Format.axisEuros(0.5, top: 3) == "0,5 €")
-    #expect(Format.axisEuros(2, top: 3) == "2,0 €")
-    #expect(Format.axisEuros(50, top: 150) == "50 €")
+    Format.locale = Locale(identifier: "en_US")
+    UserDefaults.standard.set(Currency.euro.rawValue, forKey: Currency.defaultsKey)
+    defer { UserDefaults.standard.removeObject(forKey: Currency.defaultsKey) }
+    #expect(Format.axisMoney(0.5, top: 3) == "€0.5")
+    #expect(Format.axisMoney(2, top: 3) == "€2.0")
+    #expect(Format.axisMoney(50, top: 150) == "€50")
 }

@@ -35,10 +35,10 @@ async def login():
 
     config = load_config()
     if config is None:
-        print("1. Apri https://my.telegram.org, accedi e scegli 'API development tools'.")
-        print("2. Crea un'app (nome e descrizione a piacere) e copia api_id e api_hash.\n")
+        print("1. Open https://my.telegram.org, sign in and choose 'API development tools'.")
+        print("2. Create an app (any name and description) and copy its api_id and api_hash.\n")
         api_id = int(input("api_id: ").strip())
-        api_hash = getpass.getpass("api_hash (non viene mostrato mentre scrivi): ").strip()
+        api_hash = getpass.getpass("api_hash (not shown while you type): ").strip()
         config = {"api_id": api_id, "api_hash": api_hash}
         CONFIG_FILE.write_text(json.dumps(config))
         os.chmod(CONFIG_FILE, 0o600)
@@ -49,7 +49,7 @@ async def login():
     me = await client.get_me()
     await client.disconnect()
     os.chmod(SESSION_FILE, 0o600)
-    print(f"\nAccesso effettuato come {me.first_name}. Le prossime build arriveranno in Messaggi salvati.")
+    print(f"\nSigned in as {me.first_name}. The next builds will arrive in Saved Messages.")
 
 
 async def send(path, caption):
@@ -57,19 +57,19 @@ async def send(path, caption):
 
     config = load_config()
     if config is None or not SESSION_FILE.exists():
-        print("Telegram non configurato: esegui scripts/telegram_setup.sh", file=sys.stderr)
+        print("Telegram isn't set up: run scripts/telegram_setup.sh", file=sys.stderr)
         return 1
 
     client = TelegramClient(str(SESSION), config["api_id"], config["api_hash"])
     await client.connect()
     try:
         if not await client.is_user_authorized():
-            print("Sessione Telegram non più valida: riesegui scripts/telegram_setup.sh", file=sys.stderr)
+            print("The Telegram session is no longer valid: run scripts/telegram_setup.sh again", file=sys.stderr)
             return 1
         await client.send_file("me", path, caption=caption, force_document=True)
     finally:
         await client.disconnect()
-    print("Build inviata a Telegram (Messaggi salvati)")
+    print("Build sent to Telegram (Saved Messages)")
     return 0
 
 

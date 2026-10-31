@@ -104,15 +104,15 @@ private struct CardHeader: View {
             if workingSessions > 0 {
                 HStack(spacing: 5) {
                     Circle().fill(provider.tint).frame(width: 7, height: 7)
-                    Text(workingSessions == 1 ? "Al lavoro" : "\(workingSessions) al lavoro")
+                    Text(workingSessions == 1 ? L("Working") : L("%d working", workingSessions))
                 }
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(provider.tint)
             } else if let snapshot {
-                Text("Aggiornato " + Format.ago(snapshot.updatedAt, now: now))
+                Text(L("Updated %@", Format.ago(snapshot.updatedAt, now: now)))
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
-                    .help(snapshot.source == "statusline" ? "Letto dalla status line di Claude Code" : "")
+                    .help(snapshot.source == "statusline" ? L("Read from Claude Code's status line") : "")
             }
         }
     }
@@ -160,7 +160,7 @@ private struct Gauge: View {
                         .font(.system(size: 10.5, weight: .medium))
                         .monospacedDigit()
                         .foregroundStyle(paceColor(pace.state))
-                        .help("Dove saresti usando il limite in modo costante fino al reset")
+                        .help(L("Where you'd be using the limit evenly until it resets"))
                 }
             }
             .lineLimit(1)
@@ -248,42 +248,38 @@ private struct Note: View {
 /// How a window is named in the panel's sentences.
 private struct Period {
     let label: String
-    /// "5 ore esaurite", "Settimana esaurita", "Mese esaurito".
+    /// "5 hours used up", "Week used up", "Month used up".
     let exhausted: String
-    /// The verbs and adjectives follow "5 ore", which is plural.
+    /// "5 hours" is plural, which some languages' verbs and adjectives follow (Italian).
     let plural: Bool
 
-    var resets: String { plural ? "si azzerano" : "si azzera" }
-    var notStarted: String { plural ? "Non iniziate" : "Non iniziata" }
+    var resets: String { plural ? L("resets", context: "plural") : L("resets") }
+    var notStarted: String { plural ? L("Not started", context: "plural") : L("Not started") }
 
-    static let fiveHours = Period(label: "5 ore", exhausted: "5 ore esaurite", plural: true)
-    static let week = Period(label: "Settimana", exhausted: "Settimana esaurita", plural: false)
-    static let month = Period(label: "Mese", exhausted: "Mese esaurito", plural: false)
+    static var fiveHours: Period { Period(label: L("5 hours"), exhausted: L("5 hours used up"), plural: true) }
+    static var week: Period { Period(label: L("Week"), exhausted: L("Week used up"), plural: false) }
+    static var month: Period { Period(label: L("Month"), exhausted: L("Month used up"), plural: false) }
 
     /// The week slot holds a monthly window on some plans (Codex Free).
     static func of(_ kind: WindowKind, _ window: UsageWindow) -> Period {
-        kind == .fiveHour ? .fiveHours : kind.limitName(window) == "mensile" ? .month : .week
+        kind == .fiveHour ? .fiveHours : kind.isMonthly(window) ? .month : .week
     }
 
-    /// An extra limit Anthropic adds: a model's own week ("Settimana Opus", shown as "Opus"),
+    /// An extra limit Anthropic adds: a model's own week ("Week Opus", shown as "Opus"),
     /// or the extra usage paid on top of the plan.
     static func extra(_ label: String) -> Period {
-        let modelWeek = "Settimana "
-        if label.hasPrefix(modelWeek) {
-            let model = String(label.dropFirst(modelWeek.count))
-            return Period(label: model, exhausted: "Settimana \(model) esaurita", plural: false)
+        if label.hasPrefix(ClaudeProvider.modelWeekPrefix) {
+            let model = String(label.dropFirst(ClaudeProvider.modelWeekPrefix.count))
+            return Period(label: model, exhausted: L("%@ week used up", model), plural: false)
         }
-        if label == "Uso extra" { return Period(label: "Uso extra", exhausted: "Uso extra esaurito", plural: false) }
-        return Period(label: label, exhausted: "Limite \(label) esaurito", plural: false)
+        if label == ClaudeProvider.extraUsageLabel {
+            return Period(label: L("Extra usage"), exhausted: L("Extra usage used up"), plural: false)
+        }
+        return Period(label: label, exhausted: L("%@ limit used up", label), plural: false)
     }
 }
 
-private extension String {
-    /// "Si azzera …" from "si azzera …", for a sentence that starts with it.
-    var sentence: String { prefix(1).uppercased() + dropFirst() }
-}
-
-/// "Settimana esaurita · si azzera domani alle 01:00", for the first limit used up.
+/// "Week used up · resets tomorrow at 01:00", for the first limit used up.
 private func exhaustedBanner(_ limits: [(period: Period, window: UsageWindow?)], now: Date) -> Banner? {
     guard let full = limits.first(where: { ($0.window?.effectivePercent(at: now) ?? 0) >= UsageWindow.exhausted }),
           let reset = full.window?.resetsAt else { return nil }
@@ -327,7 +323,7 @@ private struct LimitsCard: View {
     private var limits: [(period: Period, window: UsageWindow?)] {
         guard let snapshot else { return [] }
         let week = snapshot.week.map { Period.of(.week, $0) } ?? .week
-        return [(.fiveHours, snapshot.fiveHour), (week, snapshot.week)]
+        return [(Period.fiveHours, snapshot.fiveHour), (week, snapshot.week)]
             + snapshot.extras.map { (Period.extra($0.label), $0.window) }
     }
 
@@ -339,7 +335,7 @@ private struct LimitsCard: View {
             exhaustedBanner(limits, now: now)
             Gauges(gauges: limits.enumerated().map { index, limit in
                 guard let window = limit.window else {
-                    return Gauge(title: limit.period.label, percent: 0, tint: provider.tint, lines: ["Nessun limite"])
+                    return Gauge(title: limit.period.label, percent: 0, tint: provider.tint, lines: [L("No limit")])
                 }
                 // The 5 hours (first) are used in bursts: they keep the forecast, not a pace.
                 return Gauge(title: limit.period.label, percent: window.effectivePercent(at: now), tint: provider.tint,
@@ -349,16 +345,16 @@ private struct LimitsCard: View {
             if let forecast {
                 let period = Period.of(forecast.kind, forecast.window)
                 Banner(symbol: "chart.line.uptrend.xyaxis",
-                       text: "A questo ritmo: \(period.exhausted.lowercasedFirst) \(Format.at(forecast.date, now: now))",
+                       text: L("At this pace: %@ %@", period.exhausted.lowercasedFirst, Format.at(forecast.date, now: now)),
                        color: Color(nsColor: .systemOrange))
-                    .help("Al ritmo delle ultime ore, prima che il limite si azzeri")
+                    .help(L("At the pace of the last few hours, before the limit resets"))
             }
             if showHistory, let chart = UsageChart(samples: samples, snapshot: snapshot, now: now, tint: provider.tint) {
                 chart
             }
             if let note = snapshot.note { Note(symbol: "info.circle", text: note) }
         } else if state.error == nil {
-            Note(symbol: "hourglass", text: "In attesa di dati…")
+            Note(symbol: "hourglass", text: L("Waiting for data…"))
         }
         StateNotes(state: state)
     }
@@ -387,7 +383,7 @@ private struct ServiceStatusStrip: View {
                 }
             }
             .buttonStyle(.plain)
-            .help("Apri la pagina di stato")
+            .help(L("Open the status page"))
         }
     }
 }
@@ -458,7 +454,7 @@ private struct UsageChart: View {
             context.stroke(line, with: .color(tint), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
         }
         .frame(height: 36)
-        .help("Uso nelle ultime 24 ore, da sinistra a destra fino ad adesso")
+        .help(L("Usage over the last 24 hours, left to right up to now"))
     }
 }
 
@@ -489,7 +485,7 @@ private struct OpenCodeCard: View {
                 ]
                 exhaustedBanner(limits.map { ($0.period, $0.window) }, now: now)
                 if current?.isFree == true {
-                    Note(symbol: "gift", text: "Modello gratuito: non consuma i limiti")
+                    Note(symbol: "gift", text: L("Free model: it doesn't use up the limits"))
                 }
                 Gauges(gauges: limits.compactMap { limit in
                     limit.window.map { gauge(limit.period, $0, cap: limit.cap, model: paid?.name) }
@@ -497,18 +493,19 @@ private struct OpenCodeCard: View {
                 let users = models.filter { $0.fiveHour.share >= 0.5 }.sorted { $0.fiveHour.share > $1.fiveHour.share }
                 if !users.isEmpty { ModelShares(models: Array(users.prefix(4)), tint: tint) }
                 if models.isEmpty {
-                    Note(symbol: "tray", text: "Nessuna richiesta con Go questo mese")
+                    Note(symbol: "tray", text: L("No requests with Go this month"))
                 }
             } else if state.error == nil {
-                Note(symbol: "hourglass", text: "In attesa di dati…")
+                Note(symbol: "hourglass", text: L("Waiting for data…"))
             }
             StateNotes(state: state)
         }
         // What the numbers are, and each model's month, for whoever wonders.
-        .help((["Stima dall'uso su questo Mac: i limiti sono condivisi da tutti i modelli."]
+        .help(([L("Estimated from the use on this Mac: the limits are shared by all models.")]
                + models.filter { $0.month.share > 0 || $0.requests > 0 }.map {
-                   "\($0.name): \($0.requests == 1 ? "1 richiesta" : "\($0.requests) richieste"), \(Format.dollars($0.spent)), "
-                       + "\(Int($0.month.share.rounded()))% del mese"
+                   L("%@: %@, %@, %d%% of the month", $0.name,
+                     $0.requests == 1 ? L("1 request") : L("%d requests", $0.requests),
+                     Format.dollars($0.spent), Int($0.month.share.rounded()))
                }).joined(separator: "\n"))
     }
 
@@ -518,7 +515,7 @@ private struct OpenCodeCard: View {
         let value = window.effectivePercent(at: now)
         let left = cap.map { $0 * max(0, 100 - value) / 100 }
         var lines = [timeLine(period, window, now: now)]
-        if let left { lines.insert("\(Format.dollars(left)) rimasti", at: 0) }
+        if let left { lines.insert(L("%@ left", Format.dollars(left)), at: 0) }
         // The 5 hours are used in bursts: no pace for them.
         let pace = period.label == Period.fiveHours.label ? nil : Pace.of(window, now: now)
         return Gauge(title: period.label, percent: value, tint: tint, lines: lines, pace: pace)
@@ -535,7 +532,7 @@ private struct ModelShares: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("Chi ha usato le 5 ore").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            Text(L("Who used the 5 hours")).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
             GeometryReader { geometry in
                 HStack(spacing: 2) {
                     ForEach(Array(models.enumerated()), id: \.offset) { index, model in
@@ -592,23 +589,23 @@ private struct ValueCard: View {
             Card(action: { SpendWindow.shared.show(store: store) }) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Valore di \(Format.month(now))")
+                        Text(L("Value in %@", Format.month(now)))
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
-                        Text(Format.wholeEuros(fromDollars: total))
+                        Text(Format.wholeMoney(total))
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .monospacedDigit()
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(comparison.map(Format.change) ?? "Stima a prezzi API")
+                        Text(comparison.map(Format.change) ?? L("Estimate at API prices"))
                             .foregroundStyle(.secondary)
-                            .help(comparison.map(Format.comparisonNote) ?? "Quanto costerebbe lo stesso lavoro pagandolo a prezzi API")
+                            .help(comparison.map(Format.comparisonNote) ?? L("What the same work would cost paid at API prices"))
                         if saved > 0 {
-                            Text("\(Format.wholeEuros(fromDollars: saved)) risparmiati")
+                            Text(L("%@ saved", Format.wholeMoney(saved)))
                                 .fontWeight(.semibold)
                                 .foregroundStyle(Color(nsColor: .systemGreen))
-                                .help("Il valore del lavoro meno quello che costano gli abbonamenti")
+                                .help(L("The value of the work minus what the plans cost"))
                         }
                     }
                     .font(.system(size: 11.5))
@@ -619,7 +616,7 @@ private struct ValueCard: View {
                 }
                 if !projects.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Progetti")
+                        Text(L("Projects"))
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .padding(.bottom, 4)
@@ -640,7 +637,7 @@ private struct ValueCard: View {
             Text(value.multiple.map(Format.multiple) ?? "–")
                 .fontWeight(.semibold)
                 .foregroundStyle(value.multiple == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(id.tint))
-            Text(Format.wholeEuros(fromDollars: value.cost))
+            Text(Format.wholeMoney(value.cost))
                 .fontWeight(.semibold)
                 .frame(width: Layout.valueColumn, alignment: .trailing)
         }
@@ -653,14 +650,14 @@ private struct ValueCard: View {
     /// Tooltip: "LimitBar: Claude 80,12 € · 52% del mese", and for Altro what's in it.
     private func projectNote(_ project: ProjectValue, monthTotal: Double) -> String {
         let share = monthTotal > 0 ? min(project.total / monthTotal, 1) * 100 : 0
-        let services = providers.compactMap { id in project.costs[id].map { "\(id.title) \(Format.euros(fromDollars: $0))" } }
-        let name = project.name == ProjectFolder.other ? "Altro" : project.name
-        var note = "\(name): \(services.joined(separator: ", ")) · \(Int(share.rounded()))% del mese"
+        let services = providers.compactMap { id in project.costs[id].map { "\(id.title) \(Format.money($0))" } }
+        let name = project.name == ProjectFolder.other ? L("Other") : project.name
+        var note = L("%@: %@ · %d%% of the month", name, services.joined(separator: ", "), Int(share.rounded()))
         if project.name == ProjectFolder.other {
-            let folded = project.folded.isEmpty ? "" : ", e \(project.folded.joined(separator: ", "))"
-            note += "\nChat senza cartella, cartelle con più progetti\(folded)"
+            let folded = project.folded.isEmpty ? "" : L(", and %@", project.folded.joined(separator: ", "))
+            note += "\n" + L("Chats without a folder, folders with several projects") + folded
         } else if project.folder != nil {
-            note += "\nClic per aprirlo nel Finder"
+            note += "\n" + L("Click to open it in the Finder")
         }
         return note
     }
@@ -668,12 +665,15 @@ private struct ValueCard: View {
     /// Tooltip: what the plan costs, the exchange rate, and what the value is compared with.
     private func priceNote(_ id: ProviderID, _ value: ServiceValue) -> String {
         let plan = store.state(id).snapshot?.plan ?? id.title
-        let rate = "cambio BCE del \(Format.rateDate(ExchangeRate.shared.rateDate))"
-        guard let subscription = value.subscription else { return "Prezzo del piano \(plan) non noto" }
-        if subscription == 0 { return "\(plan): gratis" }
-        let times = value.multiple.map { ", quindi il lavoro vale \(Format.multiple($0)) il prezzo del piano" } ?? ""
-        return "\(plan): \(Int(subscription)) $ al mese, circa \(Format.euros(fromDollars: subscription)) al \(rate)"
-            + "\(times) (prezzi senza IVA, come quelli delle API)"
+        let rate = L("the ECB rate of %@", Format.rateDate(ExchangeRate.shared.rateDate))
+        guard let subscription = value.subscription else { return L("Price of the %@ plan not known", plan) }
+        if subscription == 0 { return L("%@: free", plan) }
+        let times = value.multiple.map { L(", so the work is worth %@ the plan's price", Format.multiple($0)) } ?? ""
+        // In euros, the rate it was converted at; in dollars, nothing to convert.
+        let price = Currency.current == .euro
+            ? L("%@ a month, about %@ at %@", Format.dollars(subscription), Format.money(subscription), rate)
+            : L("%@ a month", Format.dollars(subscription))
+        return L("%@: %@%@ (prices before tax, like the API ones)", plan, price, times)
     }
 }
 
@@ -693,12 +693,12 @@ private struct ProjectLine: View {
             Image(systemName: isOther ? "ellipsis.circle" : "folder")
                 .foregroundStyle(.tertiary)
                 .frame(width: 16)
-            Text(isOther ? "Altro" : project.name)
+            Text(isOther ? L("Other") : project.name)
                 .foregroundStyle(isOther ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .lineLimit(1)
             Spacer(minLength: 8)
             Text("\(Int(share.rounded()))%").foregroundStyle(.tertiary)
-            Text(Format.wholeEuros(fromDollars: project.total))
+            Text(Format.wholeMoney(project.total))
                 .fontWeight(.semibold)
                 .frame(width: Layout.valueColumn, alignment: .trailing)
         }
@@ -726,16 +726,16 @@ private struct ClaudeSignIn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if store.claudeLoginPending {
-                Text("Approva l'accesso nel browser, copia il codice che compare, poi incollalo qui.")
+                Text(L("Approve the sign-in in the browser, copy the code it shows, then paste it here."))
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
-                    Button("Incolla codice") { Task { await store.finishClaudeLogin() } }.prominentGlassButton()
-                    Button("Annulla") { store.cancelClaudeLogin() }.glassButton()
+                    Button(L("Paste code")) { Task { await store.finishClaudeLogin() } }.prominentGlassButton()
+                    Button(L("Cancel")) { store.cancelClaudeLogin() }.glassButton()
                 }
             } else {
-                Button("Accedi a Claude…") { store.startClaudeLogin() }.prominentGlassButton()
+                Button(L("Sign in to Claude…")) { store.startClaudeLogin() }.prominentGlassButton()
             }
         }
     }
@@ -750,22 +750,22 @@ private struct Footer: View {
     var body: some View {
         HStack(spacing: 8) {
             Button { Task { await store.refresh(force: true) } } label: {
-                Label(store.isRefreshing ? "Aggiorno…" : "Aggiorna", systemImage: "arrow.clockwise")
+                Label(store.isRefreshing ? L("Refreshing…") : L("Refresh"), systemImage: "arrow.clockwise")
             }
             .keyboardShortcut("r", modifiers: .command)
-            .help("Aggiorna ora (⌘R)")
+            .help(L("Refresh now (⌘R)"))
             .disabled(store.isRefreshing)
             Button { SettingsWindow.shared.show(store: store) } label: {
-                Label("Impostazioni", systemImage: "gearshape")
+                Label(L("Settings"), systemImage: "gearshape")
             }
             .keyboardShortcut(",", modifiers: .command)
-            .help("Impostazioni di LimitBar (⌘,)")
+            .help(L("LimitBar Settings (⌘,)"))
             Spacer()
             Button { NSApp.terminate(nil) } label: {
                 Image(systemName: "power")
             }
             .keyboardShortcut("q", modifiers: .command)
-            .help("Esci da LimitBar (⌘Q)")
+            .help(L("Quit LimitBar (⌘Q)"))
         }
         .font(.system(size: 12))
         .panelButtons()

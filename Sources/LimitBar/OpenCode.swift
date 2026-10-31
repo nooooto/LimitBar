@@ -78,7 +78,7 @@ enum OpenCodeProvider {
     }
 
     /// The label the monthly window goes by among the snapshot's extras.
-    static let monthLabel = "Mese"
+    static let monthLabel = "Month"
 
     /// The 5 hours, the week and the month: their length, and the part of a model's monthly
     /// allowance each one holds.
@@ -121,7 +121,7 @@ enum OpenCodeProvider {
             sample.source = "sample"
             return sample
         }
-        guard isConnected else { throw ProviderError.notSignedIn("OpenCode Go non collegato · collegalo dall'app OpenCode") }
+        guard isConnected else { throw ProviderError.notSignedIn(L("OpenCode Go not connected · connect it in the OpenCode app")) }
         // A month is at most 31 days.
         guard let replies = OpenCodeDatabase.replies(since: now.addingTimeInterval(-31 * 86400)) else {
             throw ProviderError.badResponse

@@ -12,7 +12,7 @@ final class SpendWindow {
     func show(store: UsageStore) {
         if window == nil {
             let window = NSWindow(contentViewController: NSHostingController(rootView: SpendView(store: store)))
-            window.title = "Spesa"
+            window.title = L("Spending")
             window.styleMask = [.titled, .closable, .resizable]
             window.setContentSize(NSSize(width: 560, height: 640))
             window.contentMinSize = NSSize(width: 560, height: 520)
@@ -61,7 +61,7 @@ private struct SpendView: View {
         let report = SpendReport.make(summary: store.costs, providers: providers, period: model.period, now: now)
         return Form {
             Section {
-                Picker("Periodo", selection: $model.period) {
+                Picker(L("Period"), selection: $model.period) {
                     ForEach(SpendPeriod.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
@@ -69,31 +69,31 @@ private struct SpendView: View {
                 summary(report, now: now)
             }
             if report.total > 0 {
-                Section("Giorno per giorno") { chart(report) }
+                Section(L("Day by day")) { chart(report) }
                 if !report.models.isEmpty {
                     Section {
                         ForEach(report.models) { modelRow($0) }
                     } header: {
-                        Text("Modelli")
+                        Text(L("Models"))
                     } footer: {
                         // A cent of slack: the two records round differently.
                         if report.modelsCost < report.total - 0.01 {
-                            Text("I modelli contano solo i giorni ancora nei registri locali: "
-                                 + "\(Format.euros(fromDollars: report.modelsCost)) dei \(Format.euros(fromDollars: report.total)) del periodo.")
+                            Text(L("The models only count the days still in the local logs: %@ of the period's %@.",
+                                   Format.money(report.modelsCost), Format.money(report.total)))
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
                 if !report.projects.isEmpty {
-                    Section("Progetti") { ForEach(report.projects) { ProjectRow(project: $0) } }
+                    Section(L("Projects")) { ForEach(report.projects) { ProjectRow(project: $0) } }
                 }
             } else {
-                Section { Text("Nessuna spesa nel periodo").foregroundStyle(.secondary) }
+                Section { Text(L("No spending in this period")).foregroundStyle(.secondary) }
             }
             if let day = report.incompleteBefore {
                 Section {
-                    Label("I giorni prima del \(Format.rateDate(day)) non sono completi: i registri più vecchi non ci sono più.",
+                    Label(L("The days before %@ aren't complete: the older logs are gone.", Format.rateDate(day)),
                           systemImage: "info.circle")
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -111,10 +111,10 @@ private struct SpendView: View {
     private func summary(_ report: SpendReport, now: Date) -> some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.period == .month ? "Valore di \(Format.month(now))" : "Valore · \(model.period.title.lowercased())")
+                Text(model.period == .month ? L("Value in %@", Format.month(now)) : L("Value · %@", model.period.title.lowercased()))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
-                Text(Format.wholeEuros(fromDollars: report.total))
+                Text(Format.wholeMoney(report.total))
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .monospacedDigit()
             }
@@ -122,14 +122,14 @@ private struct SpendView: View {
             if model.period == .month {
                 VStack(alignment: .trailing, spacing: 3) {
                     let comparison = store.monthComparison(providers, now: now)
-                    Text(comparison.map(Format.change) ?? "Stima a prezzi API")
+                    Text(comparison.map(Format.change) ?? L("Estimate at API prices"))
                         .foregroundStyle(.secondary)
-                        .help(comparison.map(Format.comparisonNote) ?? "Quanto costerebbe lo stesso lavoro pagandolo a prezzi API")
+                        .help(comparison.map(Format.comparisonNote) ?? L("What the same work would cost paid at API prices"))
                     let plans = providers.map { store.monthValue($0, now: now).subscription }
                     // Only a saving if every plan's price is known.
                     let saved = plans.contains(nil) ? 0 : report.total - plans.compactMap { $0 }.reduce(0, +)
                     if saved > 0 {
-                        Text("\(Format.wholeEuros(fromDollars: saved)) risparmiati")
+                        Text(L("%@ saved", Format.wholeMoney(saved)))
                             .fontWeight(.semibold)
                             .foregroundStyle(Color(nsColor: .systemGreen))
                     }
@@ -140,12 +140,12 @@ private struct SpendView: View {
         }
         if report.input + report.output + report.cacheRead + report.cacheWrite > 0 {
             HStack(spacing: 14) {
-                tokenItem("Input", report.input)
-                tokenItem("Output", report.output)
-                tokenItem("Cache letta", report.cacheRead)
-                tokenItem("Cache scritta", report.cacheWrite)
+                tokenItem(L("Input"), report.input)
+                tokenItem(L("Output"), report.output)
+                tokenItem(L("Cache read"), report.cacheRead)
+                tokenItem(L("Cache write"), report.cacheWrite)
             }
-            .help("Token dei registri locali, che arrivano indietro fino a 30 giorni per Claude Code")
+            .help(L("Tokens from the local logs, which go back up to 30 days for Claude Code"))
         }
     }
 
@@ -156,15 +156,15 @@ private struct SpendView: View {
         }
     }
 
-    /// "12", "340 k", "1,2 M", "3,4 Mrd".
+    /// "12", "340 k", "1.2 M", "3.4 B".
     static func tokens(_ count: Int) -> String {
         let value = Double(count)
         func short(_ divided: Double, _ unit: String) -> String {
             let digits = divided < 10 ? 1 : 0
-            return divided.formatted(.number.precision(.fractionLength(digits)).locale(Locale(identifier: "it_IT"))) + " " + unit
+            return divided.formatted(.number.precision(.fractionLength(digits)).locale(Format.locale)) + " " + unit
         }
         switch value {
-        case 1_000_000_000...: return short(value / 1_000_000_000, "Mrd")
+        case 1_000_000_000...: return short(value / 1_000_000_000, L("B", context: "billion"))
         case 1_000_000...: return short(value / 1_000_000, "M")
         case 1_000...: return short(value / 1_000, "k")
         default: return "\(count)"
@@ -177,20 +177,20 @@ private struct SpendView: View {
     /// what each service was worth on it.
     private func chart(_ report: SpendReport) -> some View {
         let rows = report.days.flatMap { day in
-            providers.map { (date: day.date, service: $0, euros: ExchangeRate.shared.euros(fromDollars: day.costs[$0] ?? 0)) }
+            providers.map { (date: day.date, service: $0, amount: Format.convert(day.costs[$0] ?? 0)) }
         }
         // The tallest day, for the axis labels' precision.
-        let top = report.days.map { day in day.costs.values.reduce(0) { $0 + ExchangeRate.shared.euros(fromDollars: $1) } }.max() ?? 0
+        let top = report.days.map { day in day.costs.values.reduce(0) { $0 + Format.convert($1) } }.max() ?? 0
         let selected = model.selectedDate.flatMap { date in
             report.days.first { Calendar.current.isDate($0.date, inSameDayAs: date) }
         }
         return Chart {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                BarMark(x: .value("Giorno", row.date, unit: .day), y: .value("Euro", row.euros))
-                    .foregroundStyle(by: .value("Servizio", row.service.title))
+                BarMark(x: .value(L("Day"), row.date, unit: .day), y: .value(L("Amount"), row.amount))
+                    .foregroundStyle(by: .value(L("Service"), row.service.title))
             }
             if let selected {
-                RuleMark(x: .value("Giorno", selected.date, unit: .day))
+                RuleMark(x: .value(L("Day"), selected.date, unit: .day))
                     .foregroundStyle(.secondary.opacity(0.4))
                     .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
                         dayNote(selected)
@@ -201,7 +201,7 @@ private struct SpendView: View {
         .chartYAxis {
             AxisMarks { value in
                 AxisGridLine()
-                AxisValueLabel { if let euros = value.as(Double.self) { Text(Format.axisEuros(euros, top: top)) } }
+                AxisValueLabel { if let amount = value.as(Double.self) { Text(Format.axisMoney(amount, top: top)) } }
             }
         }
         .chartXSelection(value: $model.selectedDate)
@@ -211,8 +211,8 @@ private struct SpendView: View {
 
     /// "3 nov · Claude 12,40 € · OpenCode 0,30 €".
     private func dayNote(_ day: SpendReport.Day) -> some View {
-        let parts = providers.compactMap { id in day.costs[id].flatMap { $0 > 0 ? "\(id.title) \(Format.euros(fromDollars: $0))" : nil } }
-        return Text(([Format.day(day.date)] + (parts.isEmpty ? ["nessuna spesa"] : parts)).joined(separator: " · "))
+        let parts = providers.compactMap { id in day.costs[id].flatMap { $0 > 0 ? "\(id.title) \(Format.money($0))" : nil } }
+        return Text(([Format.day(day.date)] + (parts.isEmpty ? [L("no spending")] : parts)).joined(separator: " · "))
             .font(.system(size: 11, weight: .medium))
             .monospacedDigit()
             .padding(.horizontal, 8)
@@ -227,16 +227,16 @@ private struct SpendView: View {
             Image(nsImage: model.service.logo).resizable().frame(width: 16, height: 16)
             Text(model.title).lineLimit(1)
             Spacer(minLength: 8)
-            Text("\(Self.tokens(model.tokens)) token").foregroundStyle(.secondary)
+            Text(L("%@ tokens", Self.tokens(model.tokens))).foregroundStyle(.secondary)
             Text("\(Int((model.share * 100).rounded()))%")
                 .foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
-            Text(Format.euros(fromDollars: model.cost))
+            Text(Format.money(model.cost))
                 .fontWeight(.semibold)
                 .frame(width: 80, alignment: .trailing)
         }
         .monospacedDigit()
-        .help("\(model.title): \(Format.dollars(model.cost)) a prezzi API, input e output senza la cache")
+        .help(L("%@: %@ at API prices, input and output without the cache", model.title, Format.dollars(model.cost)))
     }
 }
 
@@ -248,12 +248,12 @@ private struct ProjectRow: View {
         let isOther = project.name == ProjectFolder.other
         HStack(spacing: 8) {
             Image(systemName: isOther ? "ellipsis.circle" : "folder").foregroundStyle(.secondary).frame(width: 16)
-            Text(isOther ? "Altro" : project.name).lineLimit(1)
+            Text(isOther ? L("Other") : project.name).lineLimit(1)
             Spacer(minLength: 8)
             Text("\(Int((project.share * 100).rounded()))%")
                 .foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
-            Text(Format.euros(fromDollars: project.cost))
+            Text(Format.money(project.cost))
                 .fontWeight(.semibold)
                 .frame(width: 80, alignment: .trailing)
         }
@@ -262,7 +262,7 @@ private struct ProjectRow: View {
         .onTapGesture {
             if let folder = project.folder { NSWorkspace.shared.open(URL(fileURLWithPath: folder)) }
         }
-        .help(isOther ? "Chat senza cartella e cartelle con più progetti"
-                      : project.folder != nil ? "Clic per aprirlo nel Finder" : project.name)
+        .help(isOther ? L("Chats without a folder and folders with several projects")
+                      : project.folder != nil ? L("Click to open it in the Finder") : project.name)
     }
 }

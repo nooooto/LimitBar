@@ -13,7 +13,7 @@ private func week(_ used: Double, resetsIn: TimeInterval? = 3.5 * day, minutes: 
 @Test func halfwayAtHalfIsOnTrack() throws {
     let pace = try #require(Pace.of(week(50), now: now))
     #expect(pace.state == .onTrack)
-    #expect(pace.text == "In linea")
+    #expect(pace.text == "On track")
     #expect(abs(pace.expected - 0.5) < 1e-9)
 }
 
@@ -21,23 +21,23 @@ private func week(_ used: Double, resetsIn: TimeInterval? = 3.5 * day, minutes: 
     let pace = try #require(Pace.of(week(70), now: now))
     #expect(pace.state == .ahead)
     #expect(abs(pace.difference - 20) < 1e-9)
-    #expect(pace.text == "20% in anticipo")
+    #expect(pace.text == "20% ahead")
 }
 
 @Test func usingLessThanTimeLeavesMargin() throws {
     let pace = try #require(Pace.of(week(30), now: now))
     #expect(pace.state == .behind)
-    #expect(pace.text == "20% di margine")
+    #expect(pace.text == "20% to spare")
 }
 
 @Test func toleranceIsFivePoints() throws {
     #expect(Pace.of(week(54.9), now: now)?.state == .onTrack)
     let ahead = try #require(Pace.of(week(55), now: now))
     #expect(ahead.state == .ahead)
-    #expect(ahead.text == "5% in anticipo")
+    #expect(ahead.text == "5% ahead")
     let behind = try #require(Pace.of(week(45), now: now))
     #expect(behind.state == .behind)
-    #expect(behind.text == "5% di margine")
+    #expect(behind.text == "5% to spare")
 }
 
 @Test func hiddenInTheFirstTenthOfTheWindow() {

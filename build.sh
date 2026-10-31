@@ -15,7 +15,7 @@ for arg in "$@"; do
         --install) INSTALL=1 ;;
         --send) SEND=1 ;;
         --send-only) SEND_ONLY=1 ;;
-        *) echo "Opzione sconosciuta: $arg" >&2; exit 2 ;;
+        *) echo "Unknown option: $arg" >&2; exit 2 ;;
     esac
 done
 
@@ -26,20 +26,20 @@ VERSION="1.0"
 send_to_telegram() {
     local telegram="$HOME/.config/tvremote-telegram"
     if [[ ! -f "$telegram/session.session" ]]; then
-        echo "Telegram non configurato: esegui scripts/telegram_setup.sh per ricevere le build in Messaggi salvati."
+        echo "Telegram isn't set up: run scripts/telegram_setup.sh to get builds in Saved Messages."
         return
     fi
     local plist="$APP/Contents/Info.plist" version build
     version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
     build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
-    local caption="📊 LimitBar $version ($build) — build del $(date -r "$ZIP" '+%d/%m/%Y %H:%M')"
+    local caption="📊 LimitBar $version ($build) — build of $(date -r "$ZIP" '+%d/%m/%Y %H:%M')"
     [[ -n "${BUILD_NOTE:-}" ]] && caption="$caption"$'\n'"$BUILD_NOTE"
     "$telegram/venv/bin/python" -I scripts/telegram_send.py send "$ZIP" "$caption" \
-        || echo "Invio a Telegram non riuscito: la build è comunque pronta in $ZIP."
+        || echo "Sending to Telegram failed: the build is ready in $ZIP anyway."
 }
 
 if (( SEND_ONLY )); then
-    [[ -f "$ZIP" ]] || { echo "Nessuna build da inviare: esegui prima ./build.sh" >&2; exit 1; }
+    [[ -f "$ZIP" ]] || { echo "No build to send: run ./build.sh first" >&2; exit 1; }
     send_to_telegram
     exit 0
 fi
@@ -59,6 +59,8 @@ vtool -set-build-version macos 14.0 "$(xcrun --show-sdk-version)" -replace \
 mv -f "$APP/Contents/MacOS/LimitBar.stamped" "$APP/Contents/MacOS/LimitBar"
 # Regenerate with scripts/make_icon.swift (see its header) after changing the drawing.
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# The translations: English is the base (the keys), Italian in it.lproj.
+cp -R Resources/*.lproj "$APP/Contents/Resources/"
 # The iPhone widget; ICloudExport installs it in Scriptable's iCloud folder.
 cp scripts/LimitBar.js "$APP/Contents/Resources/LimitBar.js"
 
@@ -68,6 +70,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key><string>LimitBar</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleLocalizations</key><array><string>en</string><string>it</string></array>
     <key>CFBundleDisplayName</key><string>LimitBar</string>
     <key>CFBundleIdentifier</key><string>com.francescocinotti.limitbar</string>
     <key>CFBundleExecutable</key><string>LimitBar</string>

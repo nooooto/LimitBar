@@ -20,13 +20,13 @@ struct Pace: Equatable {
         abs(difference) < Self.tolerance ? .onTrack : difference > 0 ? .ahead : .behind
     }
 
-    /// "In linea", "12% in anticipo", "12% di margine".
+    /// "On track", "12% ahead", "12% to spare".
     var text: String {
         let points = Int(abs(difference).rounded())
         switch state {
-        case .onTrack: return "In linea"
-        case .ahead: return "\(points)% in anticipo"
-        case .behind: return "\(points)% di margine"
+        case .onTrack: return L("On track")
+        case .ahead: return L("%d%% ahead", points)
+        case .behind: return L("%d%% to spare", points)
         }
     }
 

@@ -13,7 +13,7 @@ import Testing
     #expect(snapshot.fiveHour?.windowMinutes == 300)
     #expect(snapshot.week?.windowMinutes == 10080)
     #expect(snapshot.week?.usedPercent == 13)
-    let opus = try #require(snapshot.extras.first { $0.label == "Settimana Opus" })
+    let opus = try #require(snapshot.extras.first { $0.label == "Week Opus" })
     #expect(opus.window.windowMinutes == 10080)
 }
 

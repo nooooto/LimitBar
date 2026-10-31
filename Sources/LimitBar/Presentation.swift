@@ -85,9 +85,9 @@ extension ProviderID {
     var usageDestination: String {
         let inApp = usageAppURL.map { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil } ?? false
         switch self {
-        case .claude: return inApp ? "Apri l'utilizzo nell'app Claude" : "Apri l'utilizzo su claude.ai"
-        case .codex: return inApp ? "Apri le impostazioni dell'app Codex" : "Apri l'utilizzo su chatgpt.com"
-        case .opencode: return inApp ? "Apri OpenCode" : "Apri la pagina di OpenCode Go"
+        case .claude: return inApp ? L("Open usage in the Claude app") : L("Open usage on claude.ai")
+        case .codex: return inApp ? L("Open the Codex app's settings") : L("Open usage on chatgpt.com")
+        case .opencode: return inApp ? L("Open OpenCode") : L("Open the OpenCode Go page")
         }
     }
 
@@ -101,129 +101,162 @@ extension ProviderID {
 }
 
 enum Format {
-    private static func formatter(_ pattern: String) -> DateFormatter {
+    /// The language LimitBar shows with the Mac's region, so dates and numbers read like the
+    /// text around them ("31 ott", "Oct 31"). Tests set it.
+    static var locale: Locale = {
+        let language = Bundle.main.preferredLocalizations.first ?? "en"
+        return Locale(identifier: Locale.current.region.map { "\(language)_\($0.identifier)" } ?? language)
+    }()
+
+    /// Whether the text is Italian, for the one rule a translation can't carry (see percentWithArticle).
+    static var isItalian: Bool { locale.language.languageCode?.identifier == "it" }
+
+    /// A formatter for `template` ("EEEdMMM", "jjmm"), laid out as the language does it.
+    private static func formatter(_ template: String) -> DateFormatter {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "it_IT")
-        f.dateFormat = pattern
+        f.locale = locale
+        f.setLocalizedDateFormatFromTemplate(template)
         return f
     }
 
-    private static let time = formatter("HH:mm")
-    private static let weekday = formatter("EEE")
-    private static let date = formatter("d MMM")
-    private static let weekdayDate = formatter("EEE d MMM")
+    private static var time: DateFormatter { formatter("jjmm") }
+    private static var weekday: DateFormatter { formatter("EEE") }
+    private static var date: DateFormatter { formatter("dMMM") }
+    private static var weekdayDate: DateFormatter { formatter("EEEdMMM") }
 
-    /// "tra 1 h 20 min", "tra 3 g 4 h": how long until a reset.
+    /// "in 1 h 20 min", "in 3 d 4 h": how long until a reset.
     static func countdown(_ date: Date?, now: Date) -> String? {
         guard let date, date > now else { return nil }
         let minutes = Int(date.timeIntervalSince(now) / 60)
         let days = minutes / 1440, hours = (minutes % 1440) / 60, rest = minutes % 60
-        if days > 0 { return hours > 0 ? "tra \(days) g \(hours) h" : "tra \(days) g" }
-        if hours > 0 { return rest > 0 ? "tra \(hours) h \(rest) min" : "tra \(hours) h" }
-        return "tra \(max(rest, 1)) min"
+        if days > 0 { return hours > 0 ? L("in %d d %d h", days, hours) : L("in %d d", days) }
+        if hours > 0 { return rest > 0 ? L("in %d h %d min", hours, rest) : L("in %d h", hours) }
+        return L("in %d min", max(rest, 1))
     }
 
-    /// The time left in the menu bar, where there's little room: "42m", "1h05", "3g4h".
+    /// The time left in the menu bar, where there's little room: "42m", "1h05", "3d4h".
     static func shortCountdown(_ date: Date, now: Date) -> String? {
         guard date > now else { return nil }
         let minutes = Int(date.timeIntervalSince(now) / 60)
         let days = minutes / 1440, hours = (minutes % 1440) / 60, rest = minutes % 60
-        if days > 0 { return hours > 0 ? "\(days)g\(hours)h" : "\(days)g" }
+        if days > 0 { return hours > 0 ? L("%dd%dh", days, hours) : L("%dd", days) }
         if hours > 0 { return "\(hours)h" + String(format: "%02d", rest) }
         return "\(max(rest, 1))m"
     }
 
-    /// "+40% su settembre", "−12% su settembre", "pari a settembre", "×3,1 su settembre" once
+    /// "+40% vs September", "−12% vs September", "same as September", "×3.1 vs September" once
     /// it's at least double.
     static func change(_ comparison: MonthComparison) -> String {
         let month = self.month(comparison.previousMonth)
         let ratio = comparison.current / comparison.previous
-        if ratio >= 2 { return "\(multiple(ratio)) su \(month)" }
+        if ratio >= 2 { return L("%@ vs %@", multiple(ratio), month) }
         let percent = Int(((ratio - 1) * 100).rounded())
-        if percent == 0 { return "pari a \(month)" }
-        return (percent > 0 ? "+\(percent)%" : "−\(-percent)%") + " su \(month)"
+        if percent == 0 { return L("same as %@", month) }
+        return L("%@ vs %@", percent > 0 ? "+\(percent)%" : "−\(-percent)%", month)
     }
 
-    /// "Dal 1° al 22 settembre: 129 €. Stime a prezzi API."
+    /// "September 1 to 22: €129. Estimates at API prices."
     static func comparisonNote(_ comparison: MonthComparison) -> String {
         let month = self.month(comparison.previousMonth)
-        let days = comparison.throughDay == 1 ? "Il 1° \(month)" : "Dal 1° al \(comparison.throughDay) \(month)"
-        return "\(days): \(euros(fromDollars: comparison.previous)). Stime a prezzi API."
+        let days = comparison.throughDay == 1 ? L("%@ 1", month) : L("%@ 1 to %d", month, comparison.throughDay)
+        return L("%@: %@. Estimates at API prices.", days, money(comparison.previous))
     }
 
     /// How long something took: "6 min", "1 h 12 min", "2 h".
     static func duration(_ seconds: TimeInterval) -> String {
         let minutes = max(Int(seconds / 60), 1)
         let hours = minutes / 60, rest = minutes % 60
-        if hours == 0 { return "\(rest) min" }
-        return rest > 0 ? "\(hours) h \(rest) min" : "\(hours) h"
+        if hours == 0 { return L("%d min", rest) }
+        return rest > 0 ? L("%d h %d min", hours, rest) : L("%d h", hours)
     }
 
-    /// "sab 24 ott · 12:01", for the panel's header.
+    /// "Sat, 24 Oct · 12:01", for the panel's header.
     static func stamp(_ date: Date) -> String {
         weekdayDate.string(from: date) + " · " + time.string(from: date)
     }
 
-    /// "alle 12:40" today, "domani alle 05:06", "gio alle 09:17" within the week, "lun 2 nov
-    /// alle 18:00" further on, where a weekday alone would be ambiguous (monthly limits).
+    /// "at 12:40" today, "tomorrow at 05:06", "Thu at 09:17" within the week, "Mon, 2 Nov at
+    /// 18:00" further on, where a weekday alone would be ambiguous (monthly limits).
     static func at(_ date: Date, now: Date) -> String {
         let calendar = Calendar.current
-        let clock = "alle " + time.string(from: date)
-        if calendar.isDate(date, inSameDayAs: now) { return clock }
+        let clock = time.string(from: date)
+        if calendar.isDate(date, inSameDayAs: now) { return L("at %@", clock) }
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) {
-            return "domani " + clock
+            return L("tomorrow at %@", clock)
         }
-        if date.timeIntervalSince(now) < 6 * 86400 { return weekday.string(from: date) + " " + clock }
-        return weekdayDate.string(from: date) + " " + clock
+        let day = date.timeIntervalSince(now) < 6 * 86400 ? weekday.string(from: date) : weekdayDate.string(from: date)
+        return L("%@ at %@", day, clock)
     }
 
-    /// "l'82%", "il 90%": a percentage with its article, as a sentence needs it.
+    /// "82%" in English; in Italian with its article, as a sentence needs it: "l'82%", "il 90%".
     static func percentWithArticle(_ value: Double) -> String {
         let number = Int(value.rounded())
+        guard isItalian else { return "\(number)%" }
         // Read aloud, 1, 8, 11 and 80-89 start with a vowel: "l'uno", "l'ottanta", "l'undici".
         let vowel = number == 1 || number == 11 || String(number).hasPrefix("8")
         return (vowel ? "l'" : "il ") + "\(number)%"
     }
 
-    private static let monthName = formatter("LLLL")
+    /// "October", "ottobre"
+    static func month(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = locale
+        f.dateFormat = "LLLL"
+        return f.string(from: date)
+    }
 
-    /// "ottobre"
-    static func month(_ date: Date) -> String { monthName.string(from: date) }
-
-    /// "8,42" with `digits` decimals.
+    /// "8.42", "8,42" with `digits` decimals.
     private static func decimal(_ value: Double, digits: Int) -> String {
-        value.formatted(.number.precision(.fractionLength(digits)).locale(Locale(identifier: "it_IT")))
+        value.formatted(.number.precision(.fractionLength(digits)).locale(locale))
     }
 
-    /// A dollar amount in euros at the ECB rate: "8,42 €" below 100 euros, "143 €" above,
-    /// since it's an estimate and cents stop mattering.
-    static func euros(fromDollars dollars: Double) -> String {
-        let value = ExchangeRate.shared.euros(fromDollars: dollars)
-        return decimal(value, digits: value < 100 ? 2 : 0) + " €"
+    /// `value` in `currency` with its symbol where the language puts it: "$8.42", "8,42 €".
+    private static func amount(_ value: Double, _ currency: Currency, digits: Int) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.locale = locale
+        f.currencyCode = currency.code
+        // "$" rather than the "USD" or "US$" some languages and regions write.
+        f.currencySymbol = currency.symbol
+        f.minimumFractionDigits = digits
+        f.maximumFractionDigits = digits
+        return f.string(from: NSNumber(value: value)) ?? decimal(value, digits: digits) + " " + currency.symbol
     }
 
-    /// Dollars as OpenCode Go counts them: "2,40 $", "143 $" from 100 up.
+    /// API prices are in dollars: in the chosen currency (see Currency), euros at the ECB rate.
+    static func convert(_ dollars: Double) -> Double {
+        Currency.current == .euro ? ExchangeRate.shared.euros(fromDollars: dollars) : dollars
+    }
+
+    /// A value at API prices in the chosen currency: "€8.42" below 100, "€143" above, since
+    /// it's an estimate and cents stop mattering.
+    static func money(_ dollars: Double) -> String {
+        let value = convert(dollars)
+        return amount(value, Currency.current, digits: value < 100 ? 2 : 0)
+    }
+
+    /// Dollars as OpenCode Go counts them, whatever the chosen currency: "$2.40", "$143" from 100 up.
     static func dollars(_ value: Double) -> String {
-        decimal(value, digits: value < 100 ? 2 : 0) + " $"
+        amount(value, .dollar, digits: value < 100 ? 2 : 0)
     }
 
-    /// Whole euros, for amounts that line up in a column: "179 €", "6 €", "< 1 €".
-    static func wholeEuros(fromDollars dollars: Double) -> String {
-        let value = ExchangeRate.shared.euros(fromDollars: dollars)
-        if value > 0 && value < 0.5 { return "< 1 €" }
-        return decimal(value, digits: 0) + " €"
+    /// Whole amounts, for values that line up in a column: "€179", "€6", "< €1".
+    static func wholeMoney(_ dollars: Double) -> String {
+        let value = convert(dollars)
+        if value > 0 && value < 0.5 { return "< " + amount(1, Currency.current, digits: 0) }
+        return amount(value, Currency.current, digits: 0)
     }
 
-    /// An axis label of the Spesa chart: "50 €", or "0,5 €" when the axis tops out under 10 €,
-    /// where whole euros would repeat.
-    static func axisEuros(_ value: Double, top: Double) -> String {
-        decimal(value, digits: top < 10 ? 1 : 0) + " €"
+    /// An axis label of the Spending chart, `value` already converted: "€50", or "€0.5" when the
+    /// axis tops out under 10, where whole amounts would repeat.
+    static func axisMoney(_ value: Double, top: Double) -> String {
+        amount(value, Currency.current, digits: top < 10 ? 1 : 0)
     }
 
-    /// "3 nov", for a day in the Spesa chart.
+    /// "Nov 3", "3 nov", for a day in the Spending chart.
     static func day(_ day: Date) -> String { date.string(from: day) }
 
-    /// "22 ott": the date of the ECB rate in use.
+    /// "Oct 22", "22 ott": the date of the ECB rate in use.
     static func rateDate(_ day: String) -> String {
         isoDay.date(from: day).map(date.string) ?? day
     }
@@ -235,7 +268,7 @@ enum Format {
         return f
     }()
 
-    /// "×8,0"
+    /// "×8.0", "×8,0"
     static func multiple(_ value: Double) -> String {
         "×" + decimal(value, digits: 1)
     }
@@ -243,10 +276,10 @@ enum Format {
     static func ago(_ date: Date, now: Date) -> String {
         let seconds = now.timeIntervalSince(date)
         switch seconds {
-        case ..<60: return "adesso"
-        case ..<3600: return "\(Int(seconds / 60)) min fa"
-        case ..<86400: return "\(Int(seconds / 3600)) h fa"
-        default: return "\(Int(seconds / 86400)) g fa"
+        case ..<60: return L("just now")
+        case ..<3600: return L("%d min ago", Int(seconds / 60))
+        case ..<86400: return L("%d h ago", Int(seconds / 3600))
+        default: return L("%d d ago", Int(seconds / 86400))
         }
     }
 }

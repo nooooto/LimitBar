@@ -4,3 +4,4 @@ build/
 # Hand-made copies from before the repository existed
 backups/
 .DS_Store
+.vscode/

@@ -14,8 +14,14 @@ if [[ -n "$limits" && "$limits" != "{}" ]]; then
         && mv -f "$tmp" "$dir/claude-status.json"
 fi
 
-jq -r '
+# The labels in the Mac's language, like LimitBar's: Italian if it comes first, else English.
+if [[ "$(defaults read -g AppleLanguages 2>/dev/null | sed -n 2p)" == *'"it'* ]]; then
+    five="5 ore" week="settimana"
+else
+    five="5 hours" week="week"
+fi
+jq -r --arg five "$five" --arg week "$week" '
     [ (.model.display_name // empty),
-      (.rate_limits.five_hour.used_percentage // empty | "5 ore \(round)%"),
-      (.rate_limits.seven_day.used_percentage // empty | "settimana \(round)%") ]
+      (.rate_limits.five_hour.used_percentage // empty | "\($five) \(round)%"),
+      (.rate_limits.seven_day.used_percentage // empty | "\($week) \(round)%") ]
     | join(" · ")' <<<"$input" 2>/dev/null

@@ -10,14 +10,9 @@ enum WindowKind: String, CaseIterable {
         }
     }
 
-    /// "delle 5 ore", "settimanale", or "mensile" for Codex's 30-day window on the Free plan.
-    func limitName(_ window: UsageWindow) -> String {
-        switch self {
-        case .fiveHour: return "delle 5 ore"
-        case .week:
-            let days = (window.windowMinutes ?? 0) / (24 * 60)
-            return (28...31).contains(days) ? "mensile" : "settimanale"
-        }
+    /// Whether the week slot holds a monthly window instead (Codex's 30 days on the Free plan).
+    func isMonthly(_ window: UsageWindow) -> Bool {
+        self == .week && (28...31).contains((window.windowMinutes ?? 0) / (24 * 60))
     }
 }
 

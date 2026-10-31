@@ -33,11 +33,9 @@ enum ServiceStatusReader {
     static let keepFor: TimeInterval = 30 * 60
 
     /// The Statuspage components that matter, in order of precedence, with their name in the panel.
-    private static let claudeComponents = [
-        ("Claude Code", "Claude Code"),
-        ("Claude API (api.anthropic.com)", "API di Claude"),
-        ("claude.ai", "claude.ai"),
-    ]
+    private static var claudeComponents: [(String, String)] {
+        [("Claude Code", "Claude Code"), ("Claude API (api.anthropic.com)", L("Claude API")), ("claude.ai", "claude.ai")]
+    }
 
     private static func statuspageHealth(_ status: String?) -> ServiceHealth? {
         switch status {
@@ -51,11 +49,11 @@ enum ServiceStatusReader {
 
     private static func word(_ health: ServiceHealth) -> String {
         switch health {
-        case .unknown: return "stato sconosciuto"
-        case .operational: return "operativo"
-        case .maintenance: return "manutenzione in corso"
-        case .degraded: return "prestazioni ridotte"
-        case .outage: return "disservizio grave"
+        case .unknown: return L("status unknown")
+        case .operational: return L("operational")
+        case .maintenance: return L("maintenance in progress")
+        case .degraded: return L("degraded performance")
+        case .outage: return L("major outage")
         }
     }
 
@@ -120,9 +118,9 @@ enum ServiceStatusReader {
         }
         let what: String
         switch worst.reason {
-        case "errors": what = "errori"
-        case "latency": what = "rallentato"
-        default: what = worst.health == .outage ? "non disponibile" : "prestazioni ridotte"
+        case "errors": what = L("errors")
+        case "latency": what = L("slow")
+        default: what = worst.health == .outage ? L("unavailable") : L("degraded performance")
         }
         return ServiceStatus(health: worst.health, text: "\(worst.name): \(what)", page: openCodePage, checkedAt: date)
     }

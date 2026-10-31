@@ -1,8 +1,33 @@
-// LimitBar widget — mostra sull'iPhone i limiti che LimitBar (sul Mac) salva su iCloud Drive.
-// LimitBar lo installa da sola nella cartella iCloud di Scriptable: non serve modificarlo.
-// Widget piccolo: solo la finestra principale; medio e grande: 5 ore e settimana;
-// schermata di blocco (rettangolare): una riga per servizio.
-// Piccolo e medio mostrano i primi due servizi (non ce ne stanno di più), il grande tutti.
+// LimitBar widget — shows on the iPhone the limits LimitBar (on the Mac) saves to iCloud Drive.
+// LimitBar installs it by itself in Scriptable's iCloud folder: there's no need to edit it.
+// Small widget: the main window only; medium and large: 5 hours and week;
+// Lock Screen (rectangular): one line per service.
+// Small and medium show the first two services (no room for more), large shows them all.
+
+// English, or Italian on a phone set to Italian.
+const ITALIAN = Device.language().startsWith("it")
+const IT = {
+  "reset": "azzerato",
+  "resets at %": "si azzera alle %",
+  "resets %": "si azzera %",
+  "no data": "nessun dato",
+  "just now": "adesso",
+  "% min ago": "% min fa",
+  "% h ago": "% h fa",
+  "% d ago": "% g fa",
+  "% hours": "% ore",
+  "month": "mese",
+  "% days": "% giorni",
+  "no limit": "nessun limite",
+  "5 hours": "5 ore",
+  "Week": "Settimana",
+  "No data: open LimitBar on the Mac.": "Nessun dato: apri LimitBar sul Mac.",
+}
+// `text` in the phone's language, with "%" replaced by `value`.
+function T(text, value) {
+  const translated = ITALIAN && IT[text] ? IT[text] : text
+  return value === undefined ? translated : translated.replace("%", value)
+}
 
 const COLORS = {
   claude: new Color("#D97857"),
@@ -32,7 +57,7 @@ function percent(win, now) {
 
 function formatter(pattern) {
   const f = new DateFormatter()
-  f.locale = "it_IT"
+  f.locale = ITALIAN ? "it_IT" : Device.locale()
   f.dateFormat = pattern
   return f
 }
@@ -40,35 +65,34 @@ const TIME = formatter("HH:mm")
 const DAY_TIME = formatter("EEE HH:mm")
 const DATE = formatter("d MMM")
 
-// "si azzera alle 12:40", "si azzera mar 18:00", "si azzera 2 nov".
+// "resets at 12:40", "resets Tue 18:00", "resets 2 Nov".
 function resetText(win, now) {
   if (!win || !win.resetsAt) return ""
   const date = new Date(win.resetsAt)
-  if (date <= now) return "azzerato"
-  const verb = "si azzera "
+  if (date <= now) return T("reset")
   const sameDay = date.toDateString() === now.toDateString()
-  if (sameDay) return verb + "alle " + TIME.string(date)
-  if (date - now >= 6 * 86400 * 1000) return verb + DATE.string(date)
-  return verb + DAY_TIME.string(date)
+  if (sameDay) return T("resets at %", TIME.string(date))
+  if (date - now >= 6 * 86400 * 1000) return T("resets %", DATE.string(date))
+  return T("resets %", DAY_TIME.string(date))
 }
 
 function ago(iso, now) {
-  if (!iso) return "nessun dato"
+  if (!iso) return T("no data")
   const seconds = (now - new Date(iso)) / 1000
-  if (seconds < 60) return "adesso"
-  if (seconds < 3600) return Math.floor(seconds / 60) + " min fa"
-  if (seconds < 86400) return Math.floor(seconds / 3600) + " h fa"
-  return Math.floor(seconds / 86400) + " g fa"
+  if (seconds < 60) return T("just now")
+  if (seconds < 3600) return T("% min ago", Math.floor(seconds / 60))
+  if (seconds < 86400) return T("% h ago", Math.floor(seconds / 3600))
+  return T("% d ago", Math.floor(seconds / 86400))
 }
 
-/// Name for a window that isn't what its column says, e.g. a 30-day limit under "Settimana".
+/// Name for a window that isn't what its column says, e.g. a 30-day limit under "Week".
 function periodLabel(win, expectedMinutes) {
   if (!win || !win.windowMinutes) return null
   const minutes = win.windowMinutes
   if (Math.abs(minutes - expectedMinutes) <= expectedMinutes / 10) return null
-  if (minutes < 24 * 60) return Math.round(minutes / 60) + " ore"
-  if (minutes >= 28 * 24 * 60 && minutes <= 31 * 24 * 60) return "mese"
-  return Math.round(minutes / (24 * 60)) + " giorni"
+  if (minutes < 24 * 60) return T("% hours", Math.round(minutes / 60))
+  if (minutes >= 28 * 24 * 60 && minutes <= 31 * 24 * 60) return T("month")
+  return T("% days", Math.round(minutes / (24 * 60)))
 }
 
 function barImage(value, color, width, height) {
@@ -108,7 +132,7 @@ function addWindow(stack, win, color, width, now, label, expectedMinutes) {
   const value = percent(win, now)
   if (value === null) {
     addText(column, label, 10, SECONDARY)
-    addText(column, "nessun limite", 11, SECONDARY)
+    addText(column, T("no limit"), 11, SECONDARY)
     return
   }
   const period = periodLabel(win, expectedMinutes)
@@ -142,13 +166,13 @@ function addProvider(widget, provider, family, now) {
   if (family === "small") {
     // The window that runs out first is the one worth seeing on a small widget.
     const main = provider.fiveHour || provider.week
-    addWindow(row, main, color, 120, now, provider.fiveHour ? "5 ore" : "Settimana",
+    addWindow(row, main, color, 120, now, provider.fiveHour ? T("5 hours") : T("Week"),
               provider.fiveHour ? 300 : 10080)
   } else {
     const width = 135
-    addWindow(row, provider.fiveHour, color, width, now, "5 ore", 300)
+    addWindow(row, provider.fiveHour, color, width, now, T("5 hours"), 300)
     row.addSpacer()
-    addWindow(row, provider.week, color, width, now, "Settimana", 10080)
+    addWindow(row, provider.week, color, width, now, T("Week"), 10080)
   }
 }
 
@@ -176,7 +200,7 @@ function buildWidget(data, family) {
   if (!data) {
     addText(widget, "LimitBar", 15, TEXT, "bold")
     widget.addSpacer(6)
-    addText(widget, "Nessun dato: apri LimitBar sul Mac.", 11, SECONDARY)
+    addText(widget, T("No data: open LimitBar on the Mac."), 11, SECONDARY)
     return widget
   }
 

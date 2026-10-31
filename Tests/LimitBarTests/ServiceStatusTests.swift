@@ -50,20 +50,20 @@ private let deepSeek = (id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash")
                              incidents: [("Elevated errors on Opus", ["Claude Code"])])
     let status = try #require(ServiceStatusReader.parseClaude(data, at: now))
     #expect(status.health == .degraded)
-    #expect(status.text == "Claude Code: prestazioni ridotte · Elevated errors on Opus")
+    #expect(status.text == "Claude Code: degraded performance · Elevated errors on Opus")
 }
 
 @Test func claudeWorstComponentWins() throws {
     let data = claudeSummary(["Claude API (api.anthropic.com)": "major_outage", "Claude Code": "partial_outage"])
     let status = try #require(ServiceStatusReader.parseClaude(data, at: now))
     #expect(status.health == .outage)
-    #expect(status.text?.hasPrefix("API di Claude: disservizio grave") == true)
+    #expect(status.text?.hasPrefix("Claude API: major outage") == true)
 }
 
 @Test func claudeMaintenance() throws {
     let status = try #require(ServiceStatusReader.parseClaude(claudeSummary(["claude.ai": "under_maintenance"]), at: now))
     #expect(status.health == .maintenance)
-    #expect(status.text == "claude.ai: manutenzione in corso")
+    #expect(status.text == "claude.ai: maintenance in progress")
 }
 
 @Test func claudeIgnoresComponentsNotUsed() throws {
@@ -76,7 +76,7 @@ private let deepSeek = (id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash")
 @Test func claudeIncidentWithoutComponentsCounts() throws {
     let data = claudeSummary(["Claude Code": "degraded_performance"], incidents: [("Investigating reports", [])])
     let status = try #require(ServiceStatusReader.parseClaude(data, at: now))
-    #expect(status.text == "Claude Code: prestazioni ridotte · Investigating reports")
+    #expect(status.text == "Claude Code: degraded performance · Investigating reports")
 }
 
 @Test func openCodeModelInUseSlow() throws {
@@ -84,7 +84,7 @@ private let deepSeek = (id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash")
                                                           ("glm-5.3", "operational", "none")])
     let status = try #require(ServiceStatusReader.parseOpenCode(data, model: deepSeek, at: now))
     #expect(status.health == .degraded)
-    #expect(status.text == "DeepSeek V4.1 Flash: rallentato")
+    #expect(status.text == "DeepSeek V4.1 Flash: slow")
     #expect(status.page == ServiceStatusReader.openCodePage)
 }
 
@@ -92,14 +92,14 @@ private let deepSeek = (id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash")
     let data = openCodeStatus(go: "outage", reason: "errors", models: [("deepseek-v4.1-flash", "operational", "none")])
     let status = try #require(ServiceStatusReader.parseOpenCode(data, model: deepSeek, at: now))
     #expect(status.health == .outage)
-    #expect(status.text == "OpenCode Go: errori")
+    #expect(status.text == "OpenCode Go: errors")
 }
 
 @Test func openCodeWordsWithoutAReason() throws {
     let degraded = try #require(ServiceStatusReader.parseOpenCode(openCodeStatus(go: "degraded"), model: nil, at: now))
-    #expect(degraded.text == "OpenCode Go: prestazioni ridotte")
+    #expect(degraded.text == "OpenCode Go: degraded performance")
     let outage = try #require(ServiceStatusReader.parseOpenCode(openCodeStatus(go: "outage"), model: nil, at: now))
-    #expect(outage.text == "OpenCode Go: non disponibile")
+    #expect(outage.text == "OpenCode Go: unavailable")
 }
 
 /// A page that answers but doesn't know is no signal, and replaces an older alarm.
@@ -125,7 +125,7 @@ private let deepSeek = (id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash")
     let data = claudeSummary(["claude.ai": "major_outage", "Claude Code": "degraded_performance"],
                              incidents: [("Slow Claude Code", ["Claude Code"]), ("claude.ai is down", ["claude.ai"])])
     let status = try #require(ServiceStatusReader.parseClaude(data, at: now))
-    #expect(status.text == "claude.ai: disservizio grave · claude.ai is down")
+    #expect(status.text == "claude.ai: major outage · claude.ai is down")
 }
 
 @Test func unreadablePagesAreUnknown() {

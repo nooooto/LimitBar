@@ -118,9 +118,9 @@ final class UsageStore: ObservableObject {
         if let fake = ProcessInfo.processInfo.environment["LIMITBAR_FAKE_STATUS"] {
             let health: ServiceHealth = fake == "outage" ? .outage : .degraded
             serviceStatus = [
-                .claude: ServiceStatus(health: health, text: "Claude Code: prestazioni ridotte · Elevated errors on Opus",
+                .claude: ServiceStatus(health: health, text: "Claude Code: " + L("degraded performance") + " · Elevated errors on Opus",
                                        page: ServiceStatusReader.claudePage, checkedAt: Date()),
-                .opencode: ServiceStatus(health: health, text: "DeepSeek V4.1 Flash: rallentato",
+                .opencode: ServiceStatus(health: health, text: "DeepSeek V4.1 Flash: " + L("slow"),
                                          page: ServiceStatusReader.openCodePage, checkedAt: Date()),
             ]
             return
@@ -302,10 +302,10 @@ final class UsageStore: ObservableObject {
             let when = Format.at(retryAt, now: Date())
             if state.snapshot != nil {
                 // The numbers on screen are still the last good ones, so this isn't an error.
-                state.notice = "Aggiornamento in pausa · riprovo \(when)"
+                state.notice = L("Updates paused · retrying %@", when)
                 state.error = nil
             } else {
-                state.error = "Troppe richieste · riprovo \(when)"
+                state.error = L("Too many requests · retrying %@", when)
             }
             states[id] = state
             return
@@ -317,7 +317,7 @@ final class UsageStore: ObservableObject {
             pausedUntil[id] = nil
             // A log-based fallback can be older than what we already have from the API.
             if let current = state.snapshot, current.updatedAt > snapshot.updatedAt {
-                state.error = "Server non raggiungibile"
+                state.error = L("Server unreachable")
             } else {
                 // Claude Code's local reading may be newer than the server's for one of the windows.
                 let snapshot = id == .claude ? snapshot.merging(windowsOf: state.snapshot) : snapshot
@@ -332,7 +332,7 @@ final class UsageStore: ObservableObject {
             default: break
             }
             if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
-                state.error = "Nessuna connessione"
+                state.error = L("No connection")
             } else {
                 state.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
@@ -479,7 +479,7 @@ final class UsageStore: ObservableObject {
     func finishClaudeLogin() async {
         guard let pending = pendingLogin else { return }
         guard let pasted = NSPasteboard.general.string(forType: .string), pasted.contains("#") else {
-            states[.claude]?.error = "Copia prima il codice dal browser"
+            states[.claude]?.error = L("Copy the code from the browser first")
             return
         }
         do {
@@ -488,7 +488,7 @@ final class UsageStore: ObservableObject {
             claudeSignedInHere = true
             await refresh(force: true)
         } catch {
-            states[.claude]?.error = "Accesso non riuscito · " + ((error as? LocalizedError)?.errorDescription ?? "riprova")
+            states[.claude]?.error = L("Sign-in failed · %@", (error as? LocalizedError)?.errorDescription ?? L("try again"))
         }
     }
 

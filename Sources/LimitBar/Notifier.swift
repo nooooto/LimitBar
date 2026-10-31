@@ -50,10 +50,15 @@ enum Notifier {
 
         if let crossed = thresholds.last(where: { percent >= $0 }), crossed > level {
             if enabled {
-                var body = "Hai usato \(Format.percentWithArticle(percent))."
-                if let resetsAt = window.resetsAt { body += " Si azzera \(Format.at(resetsAt, now: Date()))." }
-                post(id: "threshold.\(id.rawValue).\(kind.rawValue)",
-                     title: "\(id.title): \(Int(crossed))% del limite \(kind.limitName(window))", body: body)
+                var body = L("You've used %@.", Format.percentWithArticle(percent))
+                if let resetsAt = window.resetsAt { body += " " + L("It resets %@.", Format.at(resetsAt, now: Date())) }
+                let title: String
+                switch kind {
+                case .fiveHour: title = L("%@: %d%% of the 5-hour limit", id.title, Int(crossed))
+                case .week where kind.isMonthly(window): title = L("%@: %d%% of the monthly limit", id.title, Int(crossed))
+                case .week: title = L("%@: %d%% of the weekly limit", id.title, Int(crossed))
+                }
+                post(id: "threshold.\(id.rawValue).\(kind.rawValue)", title: title, body: body)
             }
             level = crossed
         }
@@ -74,8 +79,12 @@ enum Notifier {
             return
         }
         let content = UNMutableNotificationContent()
-        content.title = "\(id.title) è di nuovo disponibile"
-        content.body = "Il limite \(kind.limitName(window)) si è azzerato."
+        content.title = L("%@ is available again", id.title)
+        switch kind {
+        case .fiveHour: content.body = L("The 5-hour limit has reset.")
+        case .week where kind.isMonthly(window): content.body = L("The monthly limit has reset.")
+        case .week: content.body = L("The weekly limit has reset.")
+        }
         content.sound = .default
         // Re-adding with the same identifier replaces the pending alert, so readings can repeat this.
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: resetsAt.timeIntervalSince(now), repeats: false)
@@ -98,8 +107,8 @@ enum Notifier {
     private static let claudeLastStop = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/LimitBar/claude-last-stop")
 
-    /// "Claude ha finito" / "Claude ti aspetta" (waiting for a permission or an answer) /
-    /// "Codex ha finito" / "OpenCode ha finito", with how long it worked and on which project.
+    /// "Claude is done" / "Claude is waiting for you" (for a permission or an answer) /
+    /// "Codex is done" / "OpenCode is done", with how long it worked and on which project.
     static func stretchEnded(_ id: ProviderID, after duration: TimeInterval, enabled: Bool) {
         guard enabled, duration >= longStretch,
               !agentHosts.contains(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "") else { return }
@@ -121,10 +130,10 @@ enum Notifier {
             folder = OpenCodeActivity.lastFolder()
         }
         let project = folder.flatMap { ProjectFolder.projects(for: [$0])[$0]?.name }.flatMap { $0 == ProjectFolder.other ? nil : $0 }
-        let work = Format.duration(duration) + " di lavoro" + (project.map { " su \($0)" } ?? "")
+        let work = project.map { L("%@ of work on %@", Format.duration(duration), $0) } ?? L("%@ of work", Format.duration(duration))
         post(id: "stop.\(id.rawValue)",
-             title: waiting ? "\(id.title) ti aspetta" : "\(id.title) ha finito",
-             body: waiting ? "Dopo \(work), ha bisogno di una tua risposta." : "\(work).")
+             title: waiting ? L("%@ is waiting for you", id.title) : L("%@ is done", id.title),
+             body: waiting ? L("After %@, it needs your answer.", work) : work + ".")
     }
 
     // MARK: Weekly summary
@@ -156,8 +165,8 @@ enum Notifier {
         post(id: "weekly", title: summary.title, body: summary.body)
     }
 
-    /// "52 € di lavoro a prezzi API, soprattutto su LimitBar (31 €). Picco del limite
-    /// settimanale: Claude 71%, OpenCode 10%." for the week before `weekStart`; nil if there was no work.
+    /// "$52 of work at API prices, mostly on LimitBar ($31). Weekly limit peak: Claude 71%,
+    /// OpenCode 10%." for the week before `weekStart`; nil if there was no work.
     static func weeklySummary(costs: [String: [String: [String: Double]]], history: [ProviderID: [UsageSample]],
                               providers: [ProviderID], weekStart: Date) -> (title: String, body: String)? {
         let calendar = weekCalendar
@@ -173,17 +182,17 @@ enum Notifier {
         let total = projects.values.reduce(0, +)
         guard total > 0 else { return nil }
 
-        var body = "\(Format.wholeEuros(fromDollars: total)) di lavoro a prezzi API"
+        var body = L("%@ of work at API prices", Format.wholeMoney(total))
         if let top = projects.filter({ $0.key != ProjectFolder.other }).max(by: { $0.value < $1.value }) {
-            body += ", soprattutto su \(top.key) (\(Format.wholeEuros(fromDollars: top.value)))"
+            body += L(", mostly on %@ (%@)", top.key, Format.wholeMoney(top.value))
         }
         body += "."
         let peaks = providers.compactMap { id -> String? in
             let week = (history[id] ?? []).filter { $0.date >= start && $0.date < weekStart }.compactMap(\.week)
             return week.max().map { "\(id.title) \(Int($0.rounded()))%" }
         }
-        if !peaks.isEmpty { body += " Picco del limite settimanale: \(peaks.joined(separator: ", "))." }
-        return ("La settimana scorsa", body)
+        if !peaks.isEmpty { body += " " + L("Weekly limit peak: %@.", peaks.joined(separator: ", ")) }
+        return (L("Last week"), body)
     }
 
     // MARK: Helpers

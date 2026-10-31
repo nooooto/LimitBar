@@ -18,9 +18,9 @@ enum CodexProvider {
             if case ProviderError.rateLimited = error { throw error }
             if var snapshot = try? fetchFromSessionLogs() {
                 if case ProviderError.expired = error {
-                    snapshot.note = "Dall'ultima sessione · apri Codex per aggiornare"
+                    snapshot.note = L("From the last session · open Codex to refresh")
                 } else {
-                    snapshot.note = "Dall'ultima sessione Codex"
+                    snapshot.note = L("From the last Codex session")
                 }
                 return snapshot
             }
@@ -33,10 +33,10 @@ enum CodexProvider {
     static func fetchFromAPI() async throws -> ProviderSnapshot {
         guard let data = try? Data(contentsOf: home.appendingPathComponent("auth.json")),
               let auth = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { throw ProviderError.notSignedIn("Accesso non effettuato · esegui codex login") }
+        else { throw ProviderError.notSignedIn(L("Not signed in · run codex login")) }
         guard let tokens = auth["tokens"] as? [String: Any],
               let accessToken = tokens["access_token"] as? String
-        else { throw ProviderError.notSignedIn("API key login · no plan limits") }
+        else { throw ProviderError.notSignedIn(L("API key login · no plan limits")) }
 
         var req = URLRequest(url: URL(string: "https://chatgpt.com/backend-api/wham/usage")!)
         req.timeoutInterval = 15
@@ -50,7 +50,7 @@ enum CodexProvider {
         let (body, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw ProviderError.badResponse }
         if http.statusCode == 401 || http.statusCode == 403 {
-            throw ProviderError.expired("Accesso scaduto · apri Codex")
+            throw ProviderError.expired(L("Sign-in expired · open Codex"))
         }
         if http.statusCode == 429 { throw ProviderError.rateLimited(retryAfter: Parse.retryAfter(http)) }
         guard (200..<300).contains(http.statusCode) else { throw ProviderError.http(http.statusCode) }
@@ -148,7 +148,7 @@ enum CodexProvider {
         guard let credits = any as? [String: Any], credits["has_credits"] as? Bool == true else { return nil }
         if credits["unlimited"] as? Bool == true { return "Crediti illimitati" }
         guard let balance = Parse.number(credits["balance"]), balance > 0 else { return nil }
-        return "\(Int(balance)) crediti disponibili"
+        return L("%d credits available", Int(balance))
     }
 
     /// Just the tier ("Free", "Plus", "Pro", …): next to "Codex", "ChatGPT" would only repeat itself.
