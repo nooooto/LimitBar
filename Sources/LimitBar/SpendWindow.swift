@@ -50,9 +50,16 @@ private struct SpendView: View {
     private var providers: [ProviderID] { settings.visibleProviders.filter(\.isInCostLedger) }
 
     var body: some View {
-        let now = Date()
+        // A minute's tick, so a window left open past midnight moves on to the new day.
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            content(now: context.date)
+        }
+        .frame(minWidth: 560, minHeight: 520)
+    }
+
+    private func content(now: Date) -> some View {
         let report = SpendReport.make(summary: store.costs, providers: providers, period: model.period, now: now)
-        Form {
+        return Form {
             Section {
                 Picker("Periodo", selection: $model.period) {
                     ForEach(SpendPeriod.allCases) { Text($0.title).tag($0) }
@@ -73,6 +80,7 @@ private struct SpendView: View {
                         if report.modelsCost < report.total - 0.01 {
                             Text("I modelli contano solo i giorni ancora nei registri locali: "
                                  + "\(Format.euros(fromDollars: report.modelsCost)) dei \(Format.euros(fromDollars: report.total)) del periodo.")
+                            .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -93,7 +101,6 @@ private struct SpendView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 560, minHeight: 520)
     }
 
     // MARK: Summary
@@ -172,6 +179,8 @@ private struct SpendView: View {
         let rows = report.days.flatMap { day in
             providers.map { (date: day.date, service: $0, euros: ExchangeRate.shared.euros(fromDollars: day.costs[$0] ?? 0)) }
         }
+        // The tallest day, for the axis labels' precision.
+        let top = report.days.map { day in day.costs.values.reduce(0) { $0 + ExchangeRate.shared.euros(fromDollars: $1) } }.max() ?? 0
         let selected = model.selectedDate.flatMap { date in
             report.days.first { Calendar.current.isDate($0.date, inSameDayAs: date) }
         }
@@ -192,7 +201,7 @@ private struct SpendView: View {
         .chartYAxis {
             AxisMarks { value in
                 AxisGridLine()
-                AxisValueLabel { if let euros = value.as(Double.self) { Text("\(Int(euros)) €") } }
+                AxisValueLabel { if let euros = value.as(Double.self) { Text(Format.axisEuros(euros, top: top)) } }
             }
         }
         .chartXSelection(value: $model.selectedDate)

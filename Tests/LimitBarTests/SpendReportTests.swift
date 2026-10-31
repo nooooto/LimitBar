@@ -98,3 +98,18 @@ private func summary() -> CostLedger.Summary {
     let panel = CostLedger.cost(of: [.claude, .opencode], in: data.projects) { $0.hasPrefix("2026-11") }
     #expect(SpendReport.make(summary: data, providers: [.claude, .opencode], period: .month, now: now).total == panel)
 }
+
+/// The share is of the period, so models missing from the logs leave the rest to the note.
+@Test func modelShareIsOfThePeriod() throws {
+    var data = summary()
+    data.projects["claude"]?["2026-11-01"] = ["A": 4]
+    let report = SpendReport.make(summary: data, providers: [.claude], period: .week, now: now)
+    #expect(report.total == 8)
+    #expect(report.models.first?.share == 3.0 / 8.0)
+}
+
+@Test func axisLabelsKeepADecimalForSmallAmounts() {
+    #expect(Format.axisEuros(0.5, top: 3) == "0,5 €")
+    #expect(Format.axisEuros(2, top: 3) == "2,0 €")
+    #expect(Format.axisEuros(50, top: 150) == "50 €")
+}

@@ -102,8 +102,30 @@ private let deepSeek = (id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash")
     #expect(outage.text == "OpenCode Go: non disponibile")
 }
 
-@Test func openCodeStaleIsUnknown() {
-    #expect(ServiceStatusReader.parseOpenCode(openCodeStatus(go: "outage", stale: true), model: nil, at: now) == nil)
+/// A page that answers but doesn't know is no signal, and replaces an older alarm.
+@Test func openCodeStaleIsUnknown() throws {
+    let status = try #require(ServiceStatusReader.parseOpenCode(openCodeStatus(go: "outage", stale: true), model: nil, at: now))
+    #expect(status.health == .unknown)
+    #expect(status.text == nil)
+}
+
+@Test func openCodeUnknownStatusIsUnknown() throws {
+    let status = try #require(ServiceStatusReader.parseOpenCode(openCodeStatus(go: "unknown"), model: nil, at: now))
+    #expect(status.health == .unknown)
+}
+
+@Test func anUnknownAnswerReplacesAnOlderOutage() throws {
+    let outage = ServiceStatus(health: .outage, text: "x", page: ServiceStatusReader.openCodePage,
+                               checkedAt: now.addingTimeInterval(-5 * 60))
+    let unknown = try #require(ServiceStatusReader.parseOpenCode(openCodeStatus(go: "unknown"), model: nil, at: now))
+    #expect(ServiceStatusReader.merged(previous: outage, fresh: unknown, now: now)?.health == .unknown)
+}
+
+@Test func claudeIncidentOfTheWorstComponentWins() throws {
+    let data = claudeSummary(["claude.ai": "major_outage", "Claude Code": "degraded_performance"],
+                             incidents: [("Slow Claude Code", ["Claude Code"]), ("claude.ai is down", ["claude.ai"])])
+    let status = try #require(ServiceStatusReader.parseClaude(data, at: now))
+    #expect(status.text == "claude.ai: disservizio grave · claude.ai is down")
 }
 
 @Test func unreadablePagesAreUnknown() {

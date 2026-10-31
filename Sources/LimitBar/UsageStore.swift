@@ -135,7 +135,10 @@ final class UsageStore: ObservableObject {
         if let last = statusCheckedAt, now.timeIntervalSince(last) < (force ? 120 : ServiceStatusReader.interval - 10) { return }
         statusCheckedAt = now
         let providers = settings.visibleProviders.filter(ServiceStatusReader.checks)
-        let model = OpenCodeActivity.currentModel().map { (id: $0, name: OpenCodeProvider.modelName($0) ?? $0) }
+        // Read fresh (OpenCode 2.2 no longer writes the files that would tell the store it changed),
+        // and only when OpenCode is shown.
+        let model = providers.contains(.opencode)
+            ? OpenCodeActivity.currentModel().map { (id: $0, name: OpenCodeProvider.modelName($0) ?? $0) } : nil
         var fresh: [ProviderID: ServiceStatus?] = [:]
         if isOnline {
             await withTaskGroup(of: (ProviderID, ServiceStatus?).self) { group in

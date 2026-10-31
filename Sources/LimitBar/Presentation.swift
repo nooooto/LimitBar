@@ -214,6 +214,12 @@ enum Format {
         return decimal(value, digits: 0) + " €"
     }
 
+    /// An axis label of the Spesa chart: "50 €", or "0,5 €" when the axis tops out under 10 €,
+    /// where whole euros would repeat.
+    static func axisEuros(_ value: Double, top: Double) -> String {
+        decimal(value, digits: top < 10 ? 1 : 0) + " €"
+    }
+
     /// "3 nov", for a day in the Spesa chart.
     static func day(_ day: Date) -> String { date.string(from: day) }
 

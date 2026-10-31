@@ -375,7 +375,7 @@ private struct ServiceStatusStrip: View {
     let status: ServiceStatus?
 
     var body: some View {
-        if let status, status.health != .operational {
+        if let status, status.health > .operational {
             let text = status.text ?? ""
             Button {
                 NSWorkspace.shared.open(status.page)

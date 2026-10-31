@@ -1,8 +1,9 @@
 import Foundation
 
-/// How a service is doing by its own status page, worst last.
+/// How a service is doing by its own status page, worst last. `unknown`: the page answered
+/// without saying (stale, or a state never seen), which is no signal and clears an older one.
 enum ServiceHealth: Int, Comparable {
-    case operational, maintenance, degraded, outage
+    case unknown = -1, operational, maintenance, degraded, outage
 
     static func < (a: ServiceHealth, b: ServiceHealth) -> Bool { a.rawValue < b.rawValue }
 }
@@ -50,6 +51,7 @@ enum ServiceStatusReader {
 
     private static func word(_ health: ServiceHealth) -> String {
         switch health {
+        case .unknown: return "stato sconosciuto"
         case .operational: return "operativo"
         case .maintenance: return "manutenzione in corso"
         case .degraded: return "prestazioni ridotte"
@@ -64,19 +66,26 @@ enum ServiceStatusReader {
               let components = json["components"] as? [[String: Any]] else { return nil }
         let states = Dictionary(components.compactMap { c in (c["name"] as? String).map { ($0, c["status"] as? String) } },
                                 uniquingKeysWith: { first, _ in first })
-        let known = claudeComponents.compactMap { name, label in statuspageHealth(states[name] ?? nil).map { (label, $0) } }
-        // The first of the worst, so Claude Code wins a tie.
-        var found: (String, ServiceHealth)?
-        for entry in known where found.map({ entry.1 > $0.1 }) ?? true { found = entry }
-        guard let worst = found else { return nil }
-        guard worst.1 != .operational else { return ServiceStatus(health: .operational, text: nil, page: claudePage, checkedAt: date) }
-        let used = Set(claudeComponents.map(\.0))
-        let incident = (json["incidents"] as? [[String: Any]] ?? []).first { incident in
-            let names = (incident["components"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-            return names.isEmpty || !used.isDisjoint(with: names)
+        let known = claudeComponents.compactMap { name, label in
+            statuspageHealth(states[name] ?? nil).map { (name: name, label: label, health: $0) }
         }
-        let reason = (incident?["name"] as? String).map { " · \($0)" } ?? ""
-        return ServiceStatus(health: worst.1, text: "\(worst.0): \(word(worst.1))\(reason)", page: claudePage, checkedAt: date)
+        // The first of the worst, so Claude Code wins a tie.
+        var found: (name: String, label: String, health: ServiceHealth)?
+        for entry in known where found.map({ entry.health > $0.health }) ?? true { found = entry }
+        guard let worst = found else { return ServiceStatus(health: .unknown, text: nil, page: claudePage, checkedAt: date) }
+        guard worst.health != .operational else {
+            return ServiceStatus(health: .operational, text: nil, page: claudePage, checkedAt: date)
+        }
+        // The incident: one on the worst component, else one on another we use or on none named.
+        let used = Set(claudeComponents.map(\.0))
+        let incidents = (json["incidents"] as? [[String: Any]] ?? []).map { incident in
+            (name: incident["name"] as? String,
+             components: Set((incident["components"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }))
+        }
+        let incident = incidents.first { $0.components.contains(worst.name) }
+            ?? incidents.first { $0.components.isEmpty || !used.isDisjoint(with: $0.components) }
+        let reason = (incident?.name).map { " · \($0)" } ?? ""
+        return ServiceStatus(health: worst.health, text: "\(worst.label): \(word(worst.health))\(reason)", page: claudePage, checkedAt: date)
     }
 
     private static func openCodeHealth(_ status: String?) -> ServiceHealth? {
@@ -93,8 +102,9 @@ enum ServiceStatusReader {
     /// title, so the sentence comes from the reason.
     static func parseOpenCode(_ data: Data, model: (id: String, name: String)?, at date: Date) -> ServiceStatus? {
         guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              json["stale"] as? Bool != true,
               let go = (json["components"] as? [[String: Any]])?.first(where: { $0["service"] as? String == "go" }) else { return nil }
+        let unknown = ServiceStatus(health: .unknown, text: nil, page: openCodePage, checkedAt: date)
+        if json["stale"] as? Bool == true { return unknown }
         var candidates: [(name: String, health: ServiceHealth, reason: String?)] = []
         if let health = openCodeHealth(go["status"] as? String) {
             candidates.append(("OpenCode Go", health, go["reason"] as? String))
@@ -104,7 +114,7 @@ enum ServiceStatusReader {
             candidates.append((model.name, health, entry["reason"] as? String))
         }
         // max(by:) keeps the last of equals: the model.
-        guard let worst = candidates.max(by: { $0.health < $1.health }) else { return nil }
+        guard let worst = candidates.max(by: { $0.health < $1.health }) else { return unknown }
         guard worst.health != .operational else {
             return ServiceStatus(health: .operational, text: nil, page: openCodePage, checkedAt: date)
         }

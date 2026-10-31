@@ -54,7 +54,7 @@ struct SpendReport {
         let cost: Double
         /// Input and output (reasoning included), without the cache.
         let tokens: Int
-        /// Of the models' cost in the period, 0 to 1.
+        /// Of the period's total, 0 to 1 (the models may not cover all of it: see `modelsCost`).
         let share: Double
         var id: String { "\(service.rawValue)/\(key)" }
     }
@@ -119,7 +119,7 @@ struct SpendReport {
         let models = byModel.values
             .filter { $0.cost > 0 || $0.tokens > 0 }
             .map { Model(key: $0.key, title: modelTitle($0.key, service: $0.service), service: $0.service, cost: $0.cost,
-                         tokens: $0.tokens, share: modelsCost > 0 ? $0.cost / modelsCost : 0) }
+                         tokens: $0.tokens, share: total > 0 ? $0.cost / total : 0) }
             .sorted { ($0.cost, $0.tokens) > ($1.cost, $1.tokens) }
 
         let projects = byProject
