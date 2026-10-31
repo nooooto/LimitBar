@@ -361,7 +361,7 @@ private struct LimitsCard: View {
 }
 
 private extension String {
-    /// "settimana esaurita" from "Settimana esaurita", for the middle of a sentence.
+    /// "week used up" from "Week used up", for the middle of a sentence.
     var lowercasedFirst: String { prefix(1).lowercased() + dropFirst() }
 }
 
@@ -647,7 +647,7 @@ private struct ValueCard: View {
         .help(priceNote(id, value))
     }
 
-    /// Tooltip: "LimitBar: Claude 80,12 € · 52% del mese", and for Altro what's in it.
+    /// Tooltip: "LimitBar: Claude €80.12 · 52% of the month", and for Other what's in it.
     private func projectNote(_ project: ProjectValue, monthTotal: Double) -> String {
         let share = monthTotal > 0 ? min(project.total / monthTotal, 1) * 100 : 0
         let services = providers.compactMap { id in project.costs[id].map { "\(id.title) \(Format.money($0))" } }

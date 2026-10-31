@@ -220,7 +220,7 @@ enum OpenCodeActivity {
         OpenCodeDatabase.unfinishedSessions(updatedSince: now.addingTimeInterval(-stale)) ?? 0
     }
 
-    /// The folder of the session that was worked on last, for the "ha finito" alert.
+    /// The folder of the session that was worked on last, for the "is done" alert.
     static func lastFolder() -> String? {
         OpenCodeDatabase.lastSessionFolder()
     }
